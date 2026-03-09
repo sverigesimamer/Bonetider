@@ -1,0 +1,31 @@
+export const dark = {
+  bg:           '#07091A',
+  bgSecondary:  '#0D1035',
+  card:         '#111638',
+  cardElevated: '#1A2261',
+  text:         '#F0F2FF',
+  textSecondary:'#C8CDED',
+  textMuted:    '#6B72A8',
+  accent:       '#C9A84C',
+  accentGlow:   'rgba(201,168,76,0.2)',
+  border:       'rgba(255,255,255,0.07)',
+  success:      '#4CAF82',
+  error:        '#FF6B6B',
+  isDark:       true,
+};
+
+export const light = {
+  bg:           '#F0F3FF',
+  bgSecondary:  '#E2E8FF',
+  card:         '#FFFFFF',
+  cardElevated: '#EEF1FF',
+  text:         '#0A0F2C',
+  textSecondary:'#1A2561',
+  textMuted:    '#6B7280',
+  accent:       '#B8902A',
+  accentGlow:   'rgba(184,144,42,0.15)',
+  border:       '#E2E6F3',
+  success:      '#2E9E68',
+  error:        '#D93025',
+  isDark:       false,
+};
