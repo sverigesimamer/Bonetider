@@ -61,7 +61,7 @@ export default function SettingsScreen() {
       WebkitTapHighlightColor:'transparent',
     }}>
       <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-        <SvgIcon name={iconName} size={20} color={T.textMuted} />
+        <SvgIcon name={iconName} size={24} color={T.textMuted} />
         <div>
           <div style={{ fontSize:15, fontWeight:600, color:T.text, fontFamily:"'Inter',system-ui,sans-serif" }}>{label}</div>
           {value && <div style={{ fontSize:12, color:T.textMuted, marginTop:2, fontFamily:"'Inter',system-ui,sans-serif" }}>{value}</div>}

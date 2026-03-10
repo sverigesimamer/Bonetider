@@ -39,11 +39,17 @@ const ICONS = {
     <path fillRule="evenodd" clipRule="evenodd" d="M2.94098 13.9201C1.76941 12.7485 1.76941 10.8381 2.94098 9.66654L9.66678 2.9407C10.8383 1.76913 12.7488 1.76913 13.9203 2.9407L21.0599 10.0803C22.2315 11.2518 22.2315 13.1623 21.0599 14.3338L14.3341 21.0597C13.1626 22.2312 11.252 22.2312 10.0805 21.0597L2.94098 13.9201ZM10.7269 4.00136L4.00106 10.7272C3.41549 11.3128 3.41549 12.2638 4.00106 12.8494L5.97019 14.8185L8.19233 12.5964C8.58285 12.2059 9.21602 12.2059 9.60654 12.5964C9.99707 12.9869 9.99707 13.6201 9.60654 14.0106L7.38441 16.2328L9.24697 18.0953L11.469 15.8732C11.8595 15.4827 12.4927 15.4827 12.8832 15.8732C13.2737 16.2637 13.2737 16.8969 12.8832 17.2874L10.6611 19.5096L11.1512 19.9996C11.7368 20.5852 12.6877 20.5852 13.2733 19.9996L19.9991 13.2738C20.5847 12.6882 20.5847 11.7372 19.9991 11.1517L12.8595 4.01207L12.8491 4.00136C12.2635 3.41579 11.3125 3.41579 10.7269 4.00136Z" fill="currentColor"/>
   ),
   bell: (
-    <path d="M12 22C13.1 22 14 21.1 14 20H10C10 21.1 10.9 22 12 22ZM18 16V11C18 7.93 16.37 5.36 13.5 4.68V4C13.5 3.17 12.83 2.5 12 2.5C11.17 2.5 10.5 3.17 10.5 4V4.68C7.64 5.36 6 7.92 6 11V16L4 18V19H20V18L18 16Z" fill="currentColor"/>
+    <>
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+    </>
   ),
   bellOff: (
     <>
-      <path d="M20 18L4 2L2.59 3.41L8.46 9.28C8.17 9.82 8 10.39 8 11V16L6 18V19H18.18L19.18 20L20.59 18.59L20 18ZM10 20C10 21.1 10.9 22 12 22C13.1 22 14 21.1 14 20H10ZM18 16.82L9.18 8H13.5V4.68C16.36 5.36 18 7.92 18 11V16L20 18V19H18V16.82Z" fill="currentColor"/>
+      <path d="M8.7 3A6 6 0 0 1 18 8v2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+      <path d="M17 17H3a4 4 0 0 0 3-3.8V11a2 2 0 0 1 2-2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+      <line x1="2" y1="2" x2="22" y2="22" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
     </>
   ),
   theme: (

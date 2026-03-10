@@ -220,12 +220,12 @@ export default function HomeScreen() {
               transition:'opacity .4s, background .4s',
             }}>
               <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                {iconName && (
-                  <SvgIcon name={iconName} size={15} color={isActive ? rowColor : T.textMuted} />
-                )}
                 <div style={{ fontSize:15, fontWeight:600, color:rowColor, fontFamily:"'Inter',system-ui,sans-serif", letterSpacing:'-0.1px' }}>
                   {PRAYER_SWEDISH[name]}
                 </div>
+                {iconName && (
+                  <SvgIcon name={iconName} size={13} color={isActive ? rowColor : T.textMuted} style={{ opacity: isActive ? 0.7 : 0.45 }} />
+                )}
               </div>
               <div style={{
                 fontSize:17, fontWeight:400,
@@ -329,7 +329,7 @@ export default function HomeScreen() {
           <div style={{ fontSize:9, fontWeight:700, letterSpacing:'1.8px', textTransform:'uppercase', color:T.textMuted, marginBottom:4, fontFamily:"'Inter',system-ui,sans-serif" }}>
             Tid kvar till {PRAYER_SWEDISH[nextPrayer]}
           </div>
-          <div style={{ fontSize:42, fontWeight:400, color:T.text, letterSpacing:'3px', lineHeight:1.1, fontFamily:"'DS-Digital','Segment7','Courier New',monospace" }}>
+          <div style={{ fontSize:34, fontWeight:400, color:T.text, letterSpacing:'3px', lineHeight:1.1, fontFamily:"'DS-Digital','Segment7','Courier New',monospace" }}>
             {fmtCountdown(secondsUntil)}
           </div>
           <div style={{ fontSize:11, color:T.textMuted, marginTop:5, fontFamily:"'Inter',system-ui,sans-serif" }}>
