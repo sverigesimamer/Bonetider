@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext';
 import { useTheme } from '../context/ThemeContext';
 import { useCountdown } from '../hooks/useCountdown';
 import { fetchPrayerTimes, fetchTomorrowPrayerTimes, calcMidnight } from '../services/prayerApi';
+import IslamNuLogo from '../icons/islamnu-logga-white.svg';
 import {
   PRAYER_NAMES, PRAYER_SWEDISH, fmt24, fmtCountdown,
   getTodayDateStr, timeToSec, swedishDate, formatHijri,
@@ -252,7 +253,22 @@ export default function HomeScreen() {
       )}
 
       {/* Header */}
-      <div style={{ marginBottom:16, textAlign:'center' }}>
+      <div style={{ marginBottom:16, textAlign:'center', position:'relative' }}>
+
+        {/* Logo — top-left, dimmed gold */}
+        <img
+          src={IslamNuLogo}
+          alt=""
+          style={{
+            position:'absolute', top:0, left:0,
+            width:44, height:44,
+            opacity:0.18,
+            filter:`sepia(1) saturate(3) hue-rotate(5deg) brightness(1.1)`,
+            pointerEvents:'none',
+            userSelect:'none',
+          }}
+        />
+
         <div style={{ fontSize:14, fontWeight:600, color:T.textMuted, textTransform:'capitalize', fontFamily:"'Inter',system-ui,sans-serif", marginBottom:2 }}>
           {dateStr}
         </div>
