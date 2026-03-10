@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { fetchQiblaDirection } from '../services/prayerApi';
 
 const ALIGN_TOL = 5;
-const PERM_KEY  = 'compassPermission'; // cached in localStorage
+const PERM_KEY  = 'compassPermission';
 
 function angleDelta(a, b) {
   const d = Math.abs(a - b) % 360;
@@ -30,106 +30,107 @@ function circularSmooth(prev, next, alpha) {
 export function useQibla(location) {
   const [qiblaDir,     setQiblaDir]     = useState(null);
   const [heading,      setHeading]      = useState(0);
-  const [needleAngle,  setNeedleAngle]  = useState(0);
   const [alignDelta,   setAlignDelta]   = useState(0);
   const [isAligned,    setIsAligned]    = useState(false);
   const [compassAvail, setCompassAvail] = useState(false);
   const [loading,      setLoading]      = useState(false);
   const [error,        setError]        = useState(null);
-  // null = not asked yet, 'granted' = cached yes, 'denied' = cached no
-  const [permState,    setPermState]    = useState(() => localStorage.getItem(PERM_KEY) || null);
+  const [permState,    setPermState]    = useState(
+    () => localStorage.getItem(PERM_KEY) || null
+  );
 
-  const smoothedRef = useRef(0);
-  const prevNeedle  = useRef(0);
-  const wasAligned  = useRef(false);
-  const qiblaDirRef = useRef(null);
+  const smoothedRef    = useRef(0);
+  const wasAligned     = useRef(false);
+  const qiblaDirRef    = useRef(null);
+  const listenerActive = useRef(false);
+  const cleanupRef     = useRef(null);
 
-  // Fetch Qibla direction
-  const fetchDir = useCallback(async (lat, lng) => {
-    setLoading(true); setError(null);
-    try {
-      const dir = await fetchQiblaDirection(lat, lng);
-      setQiblaDir(dir);
-      qiblaDirRef.current = dir;
-    } catch (e) {
-      setError(e.message);
-      const fallback = calcQiblaFallback(lat, lng);
-      setQiblaDir(fallback);
-      qiblaDirRef.current = fallback;
-    } finally {
-      setLoading(false); }
-  }, []);
-
+  // ── Fetch Qibla direction once per location ──
   useEffect(() => {
-    if (location) fetchDir(location.latitude, location.longitude);
-  }, [location, fetchDir]);
+    if (!location) return;
+    let cancelled = false;
+    setLoading(true); setError(null);
+    fetchQiblaDirection(location.latitude, location.longitude)
+      .then(dir => {
+        if (!cancelled) { setQiblaDir(dir); qiblaDirRef.current = dir; }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          const fallback = calcQiblaFallback(location.latitude, location.longitude);
+          setQiblaDir(fallback);
+          qiblaDirRef.current = fallback;
+          setError('offline');
+        }
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [location]);
 
-  // Attach orientation listener
+  // ── Orientation handler (stable ref, never changes) ──
+  const handleOrientation = useRef((e) => {
+    let h = 0;
+    if (e.webkitCompassHeading != null) {
+      h = e.webkitCompassHeading;
+    } else if (e.alpha != null) {
+      h = (360 - e.alpha) % 360;
+    } else return;
+
+    smoothedRef.current = circularSmooth(smoothedRef.current, h, 0.15);
+    const smoothed = Math.round(smoothedRef.current * 10) / 10;
+    setHeading(smoothed);
+
+    if (qiblaDirRef.current !== null) {
+      const delta = angleDelta(smoothed, qiblaDirRef.current);
+      setAlignDelta(delta);
+      const aligned = delta <= ALIGN_TOL;
+      setIsAligned(aligned);
+      if (aligned && !wasAligned.current && navigator.vibrate) navigator.vibrate([60, 30, 60]);
+      wasAligned.current = aligned;
+    }
+  });
+
+  // ── Attach/detach compass listeners ──
   const attachListener = useCallback(() => {
-    const handleOrientation = (e) => {
-      let h = 0;
-      if (e.webkitCompassHeading != null) {
-        h = e.webkitCompassHeading;
-      } else if (e.alpha != null) {
-        h = (360 - e.alpha) % 360;
-      } else return;
-
-      smoothedRef.current = circularSmooth(smoothedRef.current, h, 0.15);
-      const smoothed = Math.round(smoothedRef.current * 10) / 10;
-      setHeading(smoothed);
-
-      if (qiblaDirRef.current !== null) {
-        const target = (qiblaDirRef.current - smoothed + 360) % 360;
-        let diff = target - prevNeedle.current;
-        if (diff > 180)  diff -= 360;
-        if (diff < -180) diff += 360;
-        prevNeedle.current += diff;
-        setNeedleAngle(prevNeedle.current);
-
-        const delta = angleDelta(smoothed, qiblaDirRef.current);
-        setAlignDelta(delta);
-        const aligned = delta <= ALIGN_TOL;
-        setIsAligned(aligned);
-        if (aligned && !wasAligned.current && navigator.vibrate) navigator.vibrate([60, 30, 60]);
-        wasAligned.current = aligned;
-      }
-    };
-
-    window.addEventListener('deviceorientationabsolute', handleOrientation, true);
-    window.addEventListener('deviceorientation',         handleOrientation, true);
+    if (listenerActive.current) return;
+    listenerActive.current = true;
+    const fn = handleOrientation.current;
+    window.addEventListener('deviceorientationabsolute', fn, true);
+    window.addEventListener('deviceorientation',         fn, true);
     setCompassAvail(true);
 
-    return () => {
-      window.removeEventListener('deviceorientationabsolute', handleOrientation, true);
-      window.removeEventListener('deviceorientation',         handleOrientation, true);
+    // Store cleanup so we can call it later
+    cleanupRef.current = () => {
+      window.removeEventListener('deviceorientationabsolute', fn, true);
+      window.removeEventListener('deviceorientation',         fn, true);
+      listenerActive.current = false;
     };
   }, []);
 
-  // On mount: start compass based on cached permission or device support
+  // ── Attach on mount based on permission cache ──
   useEffect(() => {
-    if (!('DeviceOrientationEvent' in window)) {
-      setCompassAvail(false);
-      return;
-    }
+    if (!('DeviceOrientationEvent' in window)) return;
 
-    // iOS needs explicit permission
+    // iOS — needs explicit permission
     if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
-      const cached = localStorage.getItem(PERM_KEY);
-      if (cached === 'granted') {
-        // Already granted — attach directly (iOS remembers the grant in session)
-        const cleanup = attachListener();
-        return cleanup;
+      if (localStorage.getItem(PERM_KEY) === 'granted') {
+        attachListener();
       }
-      // Not yet asked — caller will show permission UI
-      return;
+      // else: wait for user to press button
+    } else {
+      // Android/desktop — no permission needed
+      attachListener();
     }
 
-    // Android / non-iOS — no permission needed
-    const cleanup = attachListener();
-    return cleanup;
-  }, [attachListener]);
+    // Cleanup when leaving Qibla tab
+    return () => {
+      if (cleanupRef.current) {
+        cleanupRef.current();
+        cleanupRef.current = null;
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Permission request called from UI
+  // ── Permission request (iOS only) ──
   const requestPermission = useCallback(async () => {
     try {
       const result = await DeviceOrientationEvent.requestPermission();
@@ -142,22 +143,11 @@ export function useQibla(location) {
     }
   }, [attachListener]);
 
-  // Static needle when no compass
-  useEffect(() => {
-    if (compassAvail || !qiblaDirRef.current) return;
-    const target = (qiblaDirRef.current + 360) % 360;
-    let diff = target - prevNeedle.current;
-    if (diff > 180)  diff -= 360;
-    if (diff < -180) diff += 360;
-    prevNeedle.current += diff;
-    setNeedleAngle(prevNeedle.current);
-  }, [qiblaDir, compassAvail]);
-
   const needsPermission = typeof DeviceOrientationEvent?.requestPermission === 'function'
     && permState !== 'granted';
 
   return {
-    qiblaDir, heading, needleAngle, alignDelta, isAligned,
-    compassAvail, loading, error, needsPermission, requestPermission, permState
+    qiblaDir, heading, alignDelta, isAligned,
+    compassAvail, loading, error, needsPermission, requestPermission, permState,
   };
 }
