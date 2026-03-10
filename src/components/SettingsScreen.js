@@ -174,7 +174,8 @@ export default function SettingsScreen() {
       <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:14, padding:16 }}>
         <div style={{ fontSize:14, color:T.textMuted, lineHeight:'22px' }}>
           <strong style={{ color:T.text }}>Bönetider</strong> — Bönetider & Qibla-kompass<br/>
-          <span style={{ opacity:.7 }}>Version 1.2.0</span>
+          <span style={{ opacity:.7 }}>Version 1.2.0</span><br/>
+          <span style={{ opacity:.55, fontSize:12 }}>© {new Date().getFullYear()} Fatih Köker. Alla rättigheter förbehållna.</span>
         </div>
       </div>
 
