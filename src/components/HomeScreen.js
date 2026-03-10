@@ -200,7 +200,7 @@ export default function HomeScreen() {
               transition:'opacity .4s, background .4s',
             }}>
               <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                <div style={{ fontSize:16, fontWeight:700, color: isActive ? (T.isDark?'#0A0F2C':'#fff') : T.text }}>
+                <div style={{ fontSize:16, fontWeight:700, color: isActive ? (T.isDark?''#000'':'#fff') : T.text }}>
                   {PRAYER_SWEDISH[name]}
                 </div>
                 {isActive && (
@@ -214,7 +214,7 @@ export default function HomeScreen() {
               </div>
               <div style={{
                 fontSize:17, fontWeight:700, fontFamily:"'DM Mono','Courier New',monospace",
-                color: isActive ? (T.isDark?'#0A0F2C':'#fff') : T.textSecondary,
+                color: isActive ? (T.isDark?''#000'':'#fff') : T.textSecondary,
               }}>
                 {fmt24(times[name])}
               </div>
@@ -226,7 +226,7 @@ export default function HomeScreen() {
   };
 
   return (
-    <div style={{ padding:'12px 14px 0', background:T.bg, minHeight:'100%', display:'flex', flexDirection:'column' }}
+    <div style={{ padding:'12px 14px 0', background:T.bg, height:'100%', display:'flex', flexDirection:'column' }}
       onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
 
       {showModal && (
@@ -280,7 +280,7 @@ export default function HomeScreen() {
           </div>
           <button onClick={detectLocation} style={{
             padding:'12px 26px', borderRadius:13, background:T.accent,
-            color:T.isDark?'#0A0F2C':'#fff', fontSize:14, fontWeight:700, border:'none', cursor:'pointer',
+            color:T.isDark?''#000'':'#fff', fontSize:14, fontWeight:700, border:'none', cursor:'pointer',
           }}>Hitta min plats</button>
         </div>
       )}

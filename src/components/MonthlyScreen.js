@@ -98,7 +98,7 @@ export default function MonthlyScreen() {
               }}>
                 {/* Day number */}
                 <div style={{ width:32, textAlign:'center', flexShrink:0 }}>
-                  <div style={{ fontSize:18, fontWeight:800, color:ht?(T.isDark?'#0A0F2C':'#fff'):T.text, lineHeight:1 }}>
+                  <div style={{ fontSize:18, fontWeight:800, color:ht?(T.isDark?''#000'':'#fff'):T.text, lineHeight:1 }}>
                     {d.gregorianDay}
                   </div>
                   {ht && (
@@ -115,7 +115,7 @@ export default function MonthlyScreen() {
                       <div style={{ fontSize:8, fontWeight:700, textTransform:'uppercase', letterSpacing:.7, color:ht?(T.isDark?'rgba(10,15,44,.55)':'rgba(255,255,255,.55)'):T.textMuted, marginBottom:3 }}>
                         {sv.slice(0,3)}
                       </div>
-                      <div style={{ fontSize:10, fontWeight:600, fontFamily:"'DM Mono','Courier New',monospace", color:ht?(T.isDark?'#0A0F2C':'#fff'):T.text }}>
+                      <div style={{ fontSize:10, fontWeight:600, fontFamily:"'DM Mono','Courier New',monospace", color:ht?(T.isDark?''#000'':'#fff'):T.text }}>
                         {fmt24(d.timings[key])}
                       </div>
                     </div>

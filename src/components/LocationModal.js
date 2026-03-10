@@ -47,7 +47,7 @@ export default function LocationModal({ detected, onConfirm, onClose, theme: T }
             </p>
             <button onClick={() => onConfirm(detected)} style={{
               width:'100%', padding:'13px', borderRadius:13,
-              background:T.accent, color:T.isDark?'#0A0F2C':'#fff',
+              background:T.accent, color:T.isDark?''#000'':'#fff',
               fontSize:15, fontWeight:700, marginBottom:9, border:'none', cursor:'pointer',
             }}>
               Ja, använd {detected.city}
@@ -86,7 +86,7 @@ export default function LocationModal({ detected, onConfirm, onClose, theme: T }
               />
               <button onClick={doSearch} style={{
                 padding:'11px 16px', borderRadius:10,
-                background:T.accent, color:T.isDark?'#0A0F2C':'#fff',
+                background:T.accent, color:T.isDark?''#000'':'#fff',
                 fontSize:14, fontWeight:700, border:'none', cursor:'pointer',
               }}>
                 {searching ? '…' : '🔍'}

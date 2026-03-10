@@ -172,7 +172,7 @@ export default function SettingsScreen() {
                 transition:'all .2s', fontFamily:'inherit', WebkitTapHighlightColor:'transparent',
               }}>
                 <span style={{ fontSize:18 }}>{i}</span>
-                <span style={{ fontSize:12, fontWeight:600, color:active?(T.isDark?'#0A0F2C':'#fff'):T.text }}>{l}</span>
+                <span style={{ fontSize:12, fontWeight:600, color:active?(T.isDark?''#000'':'#fff'):T.text }}>{l}</span>
               </button>
             );
           })}
@@ -196,7 +196,7 @@ export default function SettingsScreen() {
               style={{ flex:1, padding:'12px 14px', borderRadius:10, border:`1px solid ${T.border}`, background:T.card, color:T.text, fontSize:15 }}/>
             <button onClick={doSearch} style={{
               padding:'12px 18px', borderRadius:10, background:T.accent,
-              color:T.isDark?'#0A0F2C':'#fff', fontSize:15, fontWeight:700, border:'none', cursor:'pointer',
+              color:T.isDark?''#000'':'#fff', fontSize:15, fontWeight:700, border:'none', cursor:'pointer',
             }}>
               {searching ? '…' : '🔍'}
             </button>

@@ -70,7 +70,7 @@ export default function QiblaScreen() {
             <div style={{ width:'100%', marginBottom:14 }}>
               <button onClick={requestCompassPermission} style={{
                 width:'100%', padding:'13px', borderRadius:13,
-                background:T.accent, color:T.isDark?'#0A0F2C':'#fff',
+                background:T.accent, color:T.isDark?''#000'':'#fff',
                 fontSize:15, fontWeight:700, border:'none', cursor:'pointer',
               }}>
                 🧭 Aktivera live-kompass
