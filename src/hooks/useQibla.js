@@ -122,7 +122,31 @@ export function useQibla(location) {
       const result = await DeviceOrientationEvent.requestPermission();
       localStorage.setItem(PERM_KEY, result);
       setPermState(result);
-      if (result === 'granted') window.location.reload();
+      if (result === 'granted') {
+        // Attach listeners directly without reloading the page
+        const handleOrientation = (e) => {
+          let h = 0;
+          if (e.webkitCompassHeading != null) {
+            h = e.webkitCompassHeading;
+          } else if (e.alpha != null) {
+            h = (360 - e.alpha) % 360;
+          } else return;
+          smoothedRef.current = circularSmooth(smoothedRef.current, h, 0.15);
+          const smoothed = Math.round(smoothedRef.current * 10) / 10;
+          setHeading(smoothed);
+          if (qiblaDirRef.current !== null) {
+            const delta = angleDelta(smoothed, qiblaDirRef.current);
+            setAlignDelta(delta);
+            const aligned = delta <= ALIGN_TOL;
+            setIsAligned(aligned);
+            if (aligned && !wasAligned.current && navigator.vibrate) navigator.vibrate([60, 30, 60]);
+            wasAligned.current = aligned;
+          }
+        };
+        window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+        window.addEventListener('deviceorientation',         handleOrientation, true);
+        setCompassAvail(true);
+      }
     } catch {
       localStorage.setItem(PERM_KEY, 'denied');
       setPermState('denied');

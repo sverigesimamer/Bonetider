@@ -3,7 +3,6 @@ import { useApp } from '../context/AppContext';
 import { useTheme } from '../context/ThemeContext';
 import { useCountdown } from '../hooks/useCountdown';
 import { fetchPrayerTimes, fetchTomorrowPrayerTimes, calcMidnight } from '../services/prayerApi';
-import IslamNuLogoWhite from '../icons/islamnu-logga-white.svg';
 import IslamNuLogoTeal  from '../icons/islamnu-logga-light.svg';
 import {
   PRAYER_NAMES, PRAYER_SWEDISH, fmt24, fmtCountdown,
@@ -309,13 +308,12 @@ export default function HomeScreen() {
       <div style={{ marginBottom:16, textAlign:'center', position:'relative' }}>
 
         <img
-          src={T.isDark ? IslamNuLogoWhite : IslamNuLogoTeal}
+          src={IslamNuLogoTeal}
           alt=""
           style={{
             position:'absolute', top:0, left:8,
             width:88, height:88,
-            opacity: T.isDark ? 0.18 : 1,
-            filter: T.isDark ? 'sepia(1) saturate(3) hue-rotate(5deg) brightness(1.1)' : 'none',
+            opacity: 1,
             pointerEvents:'none', userSelect:'none',
           }}
         />
@@ -471,7 +469,13 @@ export default function HomeScreen() {
       {/* No location */}
       {!location && !isLoading && (
         <div style={{ textAlign:'center', paddingTop:40 }}>
-          <div style={{ fontSize:48, marginBottom:10 }}>🕌</div>
+          <div style={{ marginBottom:10, display:'flex', justifyContent:'center' }}>
+            <SvgIcon
+              name="mapPoint"
+              size={56}
+              color={T.isDark ? '#C9A84C' : '#4a9e8e'}
+            />
+          </div>
           <div style={{ fontSize:18, fontWeight:700, color:T.text, marginBottom:8 }}>Ange din plats</div>
           <div style={{ fontSize:13, color:T.textMuted, lineHeight:1.6, maxWidth:260, margin:'0 auto 20px' }}>
             Vi behöver din plats för att visa korrekta bönetider.
@@ -543,12 +547,11 @@ export default function HomeScreen() {
           animation:'fadeUp .35s ease both', boxShadow:`0 4px 20px ${T.accentGlow}`,
         }}>
           <img
-            src={T.isDark ? IslamNuLogoWhite : IslamNuLogoTeal}
+            src={IslamNuLogoTeal}
             alt=""
             style={{
               width:22, height:22, flexShrink:0, marginTop:1, objectFit:'contain',
-              opacity: T.isDark ? 0.55 : 1,
-              filter: T.isDark ? 'sepia(1) saturate(4) hue-rotate(5deg) brightness(0.95)' : 'none',
+              opacity: 1,
             }}
           />
           <div style={{ flex:1, fontSize:13, lineHeight:1.55, color:T.textSecondary, fontFamily:"'Inter',system-ui,sans-serif" }}>
