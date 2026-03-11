@@ -460,40 +460,7 @@ export default function HomeScreen({ onMonthlyPress }) {
         </>
       )}
 
-      {/* Admin banners */}
-      {banners.map(banner => (
-        <div key={banner.id} style={{
-          marginTop:14, background:T.card,
-          border:`1px solid ${T.accent}`, borderLeft:`4px solid ${T.accent}`,
-          borderRadius:14, padding:'13px 14px',
-          display:'flex', alignItems:'flex-start', gap:10,
-          animation:'fadeUp .35s ease both', boxShadow:`0 4px 20px ${T.accentGlow}`,
-        }}>
-          <img
-            src={IslamNuLogoTeal}
-            alt=""
-            style={{
-              width:22, height:22, flexShrink:0, marginTop:1, objectFit:'contain',
-              opacity: 1,
-            }}
-          />
-          <div style={{ flex:1, fontSize:13, lineHeight:1.55, color:T.textSecondary, fontFamily:"'Inter',system-ui,sans-serif" }}>
-            {banner.message}
-            {banner.linkText && banner.linkUrl && (
-              <a href={banner.linkUrl} target="_blank" rel="noopener noreferrer" style={{
-                display:'block', marginTop:8, color:T.accent, fontWeight:700, fontSize:13,
-                textDecoration:'underline', textUnderlineOffset:3, fontFamily:"'Inter',system-ui,sans-serif",
-              }}>
-                {banner.linkText} →
-              </a>
-            )}
-          </div>
-          <button onClick={() => dismissBanner(banner.id)} style={{
-            background:'none', border:'none', cursor:'pointer', color:T.textMuted,
-            fontSize:18, lineHeight:1, padding:'0 2px', flexShrink:0, marginTop:-1,
-          }} aria-label="Stäng">×</button>
-        </div>
-      ))}
+
     </div>
   );
 }
