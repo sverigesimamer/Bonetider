@@ -5,6 +5,8 @@ import { CALC_METHODS } from '../utils/prayerUtils';
 import { searchCity, reverseGeocode } from '../services/prayerApi';
 import SvgIcon from './SvgIcon';
 
+const SCHOOLS = { 0: "Standard (Shafi'i)", 1: 'Hanafi' };
+
 // ── Standalone modal — defined OUTSIDE component so React never remounts it ──
 function ModalSheet({ title, onClose, children, T, topContent }) {
   // Lock body scroll when open
