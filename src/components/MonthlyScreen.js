@@ -14,7 +14,7 @@ const COLS = [
   { key:'Midnight',label:'Halva natten' },
 ];
 
-export default function MonthlyScreen() {
+export default function MonthlyScreen({ onBack }) {
   const { theme: T } = useTheme();
   const { location, settings } = useApp();
 
@@ -85,8 +85,17 @@ export default function MonthlyScreen() {
 
       {/* Fixed top header */}
       <div style={{ flexShrink:0, padding:'16px 14px 10px', borderBottom:`1px solid ${T.border}` }}>
-        <div style={{ fontSize:20, fontWeight:800, color:T.text, letterSpacing:'-0.3px', marginBottom:10 }}>
-          Månadsöversikt
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+          {onBack && (
+            <button onClick={onBack} style={{
+              background:'none', border:'none', cursor:'pointer', padding:'4px 6px 4px 0',
+              color:T.accent, fontSize:22, lineHeight:1, fontWeight:300,
+              WebkitTapHighlightColor:'transparent',
+            }}>‹</button>
+          )}
+          <div style={{ fontSize:20, fontWeight:800, color:T.text, letterSpacing:'-0.3px' }}>
+            Månadsöversikt
+          </div>
         </div>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           {navBtn('‹', prevMonth)}

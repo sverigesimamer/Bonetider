@@ -103,7 +103,7 @@ function PrayerTable({ times, isTomorrow, prayerStatus, T }) {
 
 // ── HomeScreen ─────────────────────────────────────────────────────────────
 
-export default function HomeScreen() {
+export default function HomeScreen({ onMonthlyPress }) {
   const { theme: T } = useTheme();
   const { prayerTimes, tomorrowTimes, hijriDate, location, settings, isLoading, error, dispatch } = useApp();
   const { nextPrayer, secondsUntil } = useCountdown(prayerTimes);
@@ -317,6 +317,21 @@ export default function HomeScreen() {
             pointerEvents:'none', userSelect:'none',
           }}
         />
+
+        {/* Monthly calendar icon — top right */}
+        {onMonthlyPress && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onMonthlyPress(); }}
+            style={{
+              position:'absolute', top:4, right: allBanners.length > 0 ? 44 : 4,
+              background:'none', border:'none', cursor:'pointer',
+              padding:6, WebkitTapHighlightColor:'transparent',
+              opacity: 0.6,
+            }}
+          >
+            <SvgIcon name="calendar" size={22} color={T.textMuted} />
+          </button>
+        )}
 
         {/* Bell icon */}
         {allBanners.length > 0 && (
