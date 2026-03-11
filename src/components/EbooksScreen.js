@@ -109,7 +109,8 @@ function PdfReader({ book, onClose, onSetPage, onAddBookmark, onRemoveBookmark, 
   const [status, setStatus]       = useState('loading');
   const [scale, setScale]         = useState(1);
   // Page-turn animation: 'idle' | 'left' | 'right'
-  const [pageAnim, setPageAnim]   = useState('idle');
+  const [pageAnim, setPageAnim]     = useState('idle');
+  const [pageAnimKey, setPageAnimKey] = useState(0);
   // Search
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -206,11 +207,15 @@ function PdfReader({ book, onClose, onSetPage, onAddBookmark, onRemoveBookmark, 
     if (clamped === page) return;
     const direction = dir || (clamped > page ? 'left' : 'right');
     setPageAnim(direction);
+    setPageAnimKey(k => k + 1);
+    // Delay page change until mid-animation so curl reveals new page
     setTimeout(() => {
       setPage(clamped);
       setScale(1);
+    }, 200);
+    setTimeout(() => {
       setPageAnim('idle');
-    }, 180);
+    }, 420);
     resetTimer();
   }, [total, page, resetTimer]);
 
@@ -302,11 +307,11 @@ function PdfReader({ book, onClose, onSetPage, onAddBookmark, onRemoveBookmark, 
     resetTimer();
   };
 
-  // Canvas animation style
+  // Canvas animation style — real page curl with perspective
   const canvasAnimStyle = pageAnim === 'left'
-    ? { animation: 'pageTurnLeft .18s ease forwards' }
+    ? { animation: `curlLeft 420ms cubic-bezier(0.4,0,0.2,1) forwards`, animationDelay: '0ms' }
     : pageAnim === 'right'
-    ? { animation: 'pageTurnRight .18s ease forwards' }
+    ? { animation: `curlRight 420ms cubic-bezier(0.4,0,0.2,1) forwards`, animationDelay: '0ms' }
     : {};
 
   return (
@@ -318,11 +323,25 @@ function PdfReader({ book, onClose, onSetPage, onAddBookmark, onRemoveBookmark, 
       onClick={resetTimer}
     >
       <style>{`
-        @keyframes spin       { to { transform: rotate(360deg) } }
-        @keyframes fadeUp     { from { opacity:0; transform:translateY(8px)  } to { opacity:1; transform:translateY(0) } }
-        @keyframes pageTurnLeft  { 0%{opacity:1;transform:translateX(0) scale(1)} 50%{opacity:0;transform:translateX(-28px) scale(.96)} 100%{opacity:1;transform:translateX(0) scale(1)} }
-        @keyframes pageTurnRight { 0%{opacity:1;transform:translateX(0) scale(1)} 50%{opacity:0;transform:translateX(28px) scale(.96)} 100%{opacity:1;transform:translateX(0) scale(1)} }
-        @keyframes searchSlide { from{opacity:0;transform:translateY(-12px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes spin        { to { transform: rotate(360deg) } }
+        @keyframes fadeUp      { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:translateY(0) } }
+        @keyframes searchSlide { from { opacity:0; transform:translateY(-12px) } to { opacity:1; transform:translateY(0) } }
+
+        /* Page curl — left (next page): corner peels from bottom-right */
+        @keyframes curlLeft {
+          0%   { transform: perspective(1200px) rotateY(0deg)   translateZ(0px);  opacity:1; transform-origin: left center; }
+          40%  { transform: perspective(1200px) rotateY(-55deg) translateZ(30px); opacity:1; transform-origin: left center; }
+          60%  { transform: perspective(1200px) rotateY(-55deg) translateZ(30px); opacity:0; transform-origin: left center; }
+          100% { transform: perspective(1200px) rotateY(0deg)   translateZ(0px);  opacity:1; transform-origin: left center; }
+        }
+
+        /* Page curl — right (previous page): peels from bottom-left */
+        @keyframes curlRight {
+          0%   { transform: perspective(1200px) rotateY(0deg)  translateZ(0px);  opacity:1; transform-origin: right center; }
+          40%  { transform: perspective(1200px) rotateY(55deg) translateZ(30px); opacity:1; transform-origin: right center; }
+          60%  { transform: perspective(1200px) rotateY(55deg) translateZ(30px); opacity:0; transform-origin: right center; }
+          100% { transform: perspective(1200px) rotateY(0deg)  translateZ(0px);  opacity:1; transform-origin: right center; }
+        }
       `}</style>
 
       {/* TOP BAR */}
@@ -463,10 +482,12 @@ function PdfReader({ book, onClose, onSetPage, onAddBookmark, onRemoveBookmark, 
       {/* CANVAS AREA */}
       <div style={{ flex:1, position:'relative', background:'#111', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
         <canvas
+          key={pageAnimKey}
           ref={canvasRef}
           style={{
             display: status === 'ready' ? 'block' : 'none',
             maxWidth:'100%', maxHeight:'100%', objectFit:'contain',
+            willChange: 'transform, opacity',
             ...canvasAnimStyle,
           }}
         />
@@ -590,6 +611,13 @@ const navBtnStyle = { background:'rgba(255,255,255,.12)', border:'none', borderR
 function BookDetail({ book, allBooks, onBack, onRead, onToggleFav, T }) {
   const hasProgress = book.progressPercent > 0 && book.lastReadPage > 1;
   const related = allBooks.filter(b => b.category === book.category && b.id !== book.id && b.available).slice(0, 4);
+  // ~1.5 min per page for a PDF e-book (slower than prose)
+  const readingMins = book.pageCount ? Math.round(book.pageCount * 1.5) : null;
+  const readingLabel = readingMins
+    ? readingMins >= 60
+      ? `${Math.floor(readingMins / 60)} h ${readingMins % 60} min`
+      : `${readingMins} min`
+    : null;
 
   return (
     <div style={{ background:T.bg, minHeight:'100%', fontFamily:"'Georgia',serif" }}>
@@ -613,7 +641,8 @@ function BookDetail({ book, allBooks, onBack, onRead, onToggleFav, T }) {
             <div style={{ fontSize:15, fontWeight:600, color:'rgba(255,255,255,.95)', fontFamily:'system-ui', marginBottom:10, textShadow:'0 1px 4px rgba(0,0,0,.5)' }}>{book.author}</div>
             <div style={{ display:'flex', gap:7, justifyContent:'center', flexWrap:'wrap' }}>
               <CatChip categoryId={book.category} T={T} />
-              {book.pageCount && <span style={{ fontSize:10, color:'rgba(255,255,255,.6)', background:'rgba(255,255,255,.12)', padding:'3px 9px', borderRadius:20, fontFamily:'system-ui' }}>{book.pageCount} sidor</span>}
+              {book.pageCount && <span style={{ fontSize:10, color:'rgba(255,255,255,.75)', background:'rgba(255,255,255,.15)', padding:'3px 9px', borderRadius:20, fontFamily:'system-ui' }}>{book.pageCount} sidor</span>}
+              {readingLabel && <span style={{ fontSize:10, color:'rgba(255,255,255,.75)', background:'rgba(255,255,255,.15)', padding:'3px 9px', borderRadius:20, fontFamily:'system-ui' }}>⏱ ca {readingLabel}</span>}
               {book.publishedYear && <span style={{ fontSize:10, color:'rgba(255,255,255,.6)', background:'rgba(255,255,255,.12)', padding:'3px 9px', borderRadius:20, fontFamily:'system-ui' }}>{book.publishedYear}</span>}
             </div>
           </div>
@@ -669,13 +698,6 @@ function BookDetail({ book, allBooks, onBack, onRead, onToggleFav, T }) {
           <p style={{ fontSize:15, lineHeight:1.75, color:T.textSecondary, margin:0 }}>{book.longDescription}</p>
         </div>
 
-        {book.tags?.length > 0 && (
-          <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:24 }}>
-            {book.tags.map(tag => (
-              <span key={tag} style={{ fontSize:11, color:T.textMuted, background:T.bgSecondary, padding:'3px 10px', borderRadius:20, fontFamily:'system-ui' }}>#{tag}</span>
-            ))}
-          </div>
-        )}
 
         {related.length > 0 && (
           <div>
