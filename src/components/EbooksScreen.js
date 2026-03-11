@@ -206,16 +206,13 @@ function PdfReader({ book, onClose, onSetPage, onAddBookmark, onRemoveBookmark, 
     const clamped = Math.max(1, Math.min(p, total));
     if (clamped === page) return;
     const direction = dir || (clamped > page ? 'left' : 'right');
+    // Immediately update page — new canvas slides in, old one is gone
+    setPage(clamped);
+    setScale(1);
     setPageAnim(direction);
     setPageAnimKey(k => k + 1);
-    // Delay page change until mid-animation so curl reveals new page
-    setTimeout(() => {
-      setPage(clamped);
-      setScale(1);
-    }, 200);
-    setTimeout(() => {
-      setPageAnim('idle');
-    }, 420);
+    // Reset anim state after animation completes
+    setTimeout(() => setPageAnim('idle'), 300);
     resetTimer();
   }, [total, page, resetTimer]);
 
@@ -307,11 +304,11 @@ function PdfReader({ book, onClose, onSetPage, onAddBookmark, onRemoveBookmark, 
     resetTimer();
   };
 
-  // Canvas animation style — real page curl with perspective
+  // Slide in from correct direction when page changes
   const canvasAnimStyle = pageAnim === 'left'
-    ? { animation: `curlLeft 420ms cubic-bezier(0.4,0,0.2,1) forwards`, animationDelay: '0ms' }
+    ? { animation: 'slideInLeft 280ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both' }
     : pageAnim === 'right'
-    ? { animation: `curlRight 420ms cubic-bezier(0.4,0,0.2,1) forwards`, animationDelay: '0ms' }
+    ? { animation: 'slideInRight 280ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both' }
     : {};
 
   return (
@@ -327,21 +324,12 @@ function PdfReader({ book, onClose, onSetPage, onAddBookmark, onRemoveBookmark, 
         @keyframes fadeUp      { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:translateY(0) } }
         @keyframes searchSlide { from { opacity:0; transform:translateY(-12px) } to { opacity:1; transform:translateY(0) } }
 
-        /* Page curl — left (next page): corner peels from bottom-right */
-        @keyframes curlLeft {
-          0%   { transform: perspective(1200px) rotateY(0deg)   translateZ(0px);  opacity:1; transform-origin: left center; }
-          40%  { transform: perspective(1200px) rotateY(-55deg) translateZ(30px); opacity:1; transform-origin: left center; }
-          60%  { transform: perspective(1200px) rotateY(-55deg) translateZ(30px); opacity:0; transform-origin: left center; }
-          100% { transform: perspective(1200px) rotateY(0deg)   translateZ(0px);  opacity:1; transform-origin: left center; }
-        }
-
-        /* Page curl — right (previous page): peels from bottom-left */
-        @keyframes curlRight {
-          0%   { transform: perspective(1200px) rotateY(0deg)  translateZ(0px);  opacity:1; transform-origin: right center; }
-          40%  { transform: perspective(1200px) rotateY(55deg) translateZ(30px); opacity:1; transform-origin: right center; }
-          60%  { transform: perspective(1200px) rotateY(55deg) translateZ(30px); opacity:0; transform-origin: right center; }
-          100% { transform: perspective(1200px) rotateY(0deg)  translateZ(0px);  opacity:1; transform-origin: right center; }
-        }
+        /* Slide out current page */
+        @keyframes slideOutLeft  { from { transform:translateX(0);     opacity:1 } to { transform:translateX(-60px);  opacity:0 } }
+        @keyframes slideOutRight { from { transform:translateX(0);     opacity:1 } to { transform:translateX(60px);   opacity:0 } }
+        /* Slide in new page */
+        @keyframes slideInLeft   { from { transform:translateX(60px);  opacity:0 } to { transform:translateX(0);     opacity:1 } }
+        @keyframes slideInRight  { from { transform:translateX(-60px); opacity:0 } to { transform:translateX(0);     opacity:1 } }
       `}</style>
 
       {/* TOP BAR */}
@@ -641,9 +629,9 @@ function BookDetail({ book, allBooks, onBack, onRead, onToggleFav, T }) {
             <div style={{ fontSize:15, fontWeight:600, color:'rgba(255,255,255,.95)', fontFamily:'system-ui', marginBottom:10, textShadow:'0 1px 4px rgba(0,0,0,.5)' }}>{book.author}</div>
             <div style={{ display:'flex', gap:7, justifyContent:'center', flexWrap:'wrap' }}>
               <CatChip categoryId={book.category} T={T} />
-              {book.pageCount && <span style={{ fontSize:10, color:'rgba(255,255,255,.75)', background:'rgba(255,255,255,.15)', padding:'3px 9px', borderRadius:20, fontFamily:'system-ui' }}>{book.pageCount} sidor</span>}
-              {readingLabel && <span style={{ fontSize:10, color:'rgba(255,255,255,.75)', background:'rgba(255,255,255,.15)', padding:'3px 9px', borderRadius:20, fontFamily:'system-ui' }}>⏱ ca {readingLabel}</span>}
-              {book.publishedYear && <span style={{ fontSize:10, color:'rgba(255,255,255,.6)', background:'rgba(255,255,255,.12)', padding:'3px 9px', borderRadius:20, fontFamily:'system-ui' }}>{book.publishedYear}</span>}
+              {book.pageCount && <span style={{ fontSize:11, fontWeight:600, color:'#fff', background:'rgba(0,0,0,.45)', padding:'4px 11px', borderRadius:20, fontFamily:'system-ui', backdropFilter:'blur(4px)' }}>{book.pageCount} sidor</span>}
+              {readingLabel && <span style={{ fontSize:11, fontWeight:600, color:'#fff', background:'rgba(0,0,0,.45)', padding:'4px 11px', borderRadius:20, fontFamily:'system-ui', backdropFilter:'blur(4px)' }}>⏱ ca {readingLabel}</span>}
+              {book.publishedYear && <span style={{ fontSize:11, fontWeight:600, color:'#fff', background:'rgba(0,0,0,.35)', padding:'4px 11px', borderRadius:20, fontFamily:'system-ui', backdropFilter:'blur(4px)' }}>{book.publishedYear}</span>}
             </div>
           </div>
         </div>

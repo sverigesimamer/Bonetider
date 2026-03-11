@@ -34,20 +34,20 @@ function setStorage(key, val) {
   try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
 }
 
-const DISMISSED_KEY = 'banners-dismissed'; // Set of ids dismissed today
-const READ_KEY      = 'banners-read';      // Set of ids user has seen
+const DISMISSED_KEY = 'banners-dismissed';
+const READ_KEY      = 'banners-read';
+const CACHE_KEY     = 'banners-cache';   // persisted banner list for instant display
 
 export function useBanner() {
-  // allBanners = every active banner regardless of dismissed state
-  const [allBanners, setAllBanners] = useState([]);
-  // dismissed ids (per day)
-  const [dismissed,  setDismissed]  = useState(() => {
-    const d = getStorage(DISMISSED_KEY, {});
-    // Clean up old days
-    const today = todayStr();
-    return Object.fromEntries(Object.entries(d).filter(([,v]) => v === today));
+  // Initialise from cache so bell/banners show instantly without waiting for fetch
+  const [allBanners, setAllBanners] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(CACHE_KEY)) ?? []; } catch { return []; }
   });
-  // read ids (persistent — never reset)
+  const [dismissed, setDismissed] = useState(() => {
+    const d = getStorage(DISMISSED_KEY, {});
+    const today = todayStr();
+    return Object.fromEntries(Object.entries(d).filter(([, v]) => v === today));
+  });
   const [read, setRead] = useState(() => getStorage(READ_KEY, []));
 
   useEffect(() => {
@@ -71,6 +71,8 @@ export function useBanner() {
           });
         });
         setAllBanners(active);
+        // Persist so next load shows instantly
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify(active)); } catch {}
       })
       .catch(() => {});
   }, []);
