@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
-import { AppProvider } from './context/AppContext';
+import { AppProvider, useApp } from './context/AppContext';
 import NewHomeScreen  from './components/NewHomeScreen';
 import PrayerScreen   from './components/HomeScreen';
 import MonthlyScreen  from './components/MonthlyScreen';
@@ -10,6 +10,7 @@ import SettingsScreen from './components/SettingsScreen';
 import SvgIcon        from './components/SvgIcon';
 import KabaIcon       from './icons/kaba.svg';
 import PrayerTimesIcon from './icons/prayer-times.svg';
+import { reverseGeocode } from './services/prayerApi';
 
 function svgColorFilter(isDark) {
   return isDark
@@ -25,12 +26,125 @@ const TABS = [
   { id: 'settings', type: 'icon',   iconName: 'settings', label: 'Inställningar' },
 ];
 
+const GPS_PROMPT_KEY = 'gps-prompt-shown'; // set to 'done' once user responded
+
+/* ── GPS permission dialog ────────────────────────────────────── */
+function LocationPrompt({ onAllow, onDeny, T }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 9999,
+      background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)',
+      display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+      padding: '0 16px 32px',
+      animation: 'promptIn .3s cubic-bezier(0.25,0.46,0.45,0.94)',
+    }}>
+      <style>{`@keyframes promptIn{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:translateY(0)}}`}</style>
+      <div style={{
+        width: '100%', maxWidth: 460,
+        background: T.card, borderRadius: 24,
+        padding: '28px 24px 24px',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
+        border: `1px solid ${T.border}`,
+      }}>
+        <div style={{ fontSize: 40, textAlign: 'center', marginBottom: 16 }}>📍</div>
+        <h2 style={{
+          fontSize: 19, fontWeight: 800, color: T.text, textAlign: 'center',
+          margin: '0 0 10px', fontFamily: "'Inter', system-ui, sans-serif",
+        }}>Dela din plats</h2>
+        <p style={{
+          fontSize: 14, color: T.textSecondary, textAlign: 'center',
+          lineHeight: 1.65, margin: '0 0 24px',
+          fontFamily: 'system-ui, sans-serif',
+        }}>
+          Appen behöver din plats för att visa korrekta bönetider för din stad.
+          Din plats sparas bara lokalt på din enhet.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <button
+            onClick={onAllow}
+            style={{
+              padding: '15px', borderRadius: 14, background: T.accent,
+              color: '#fff', border: 'none', cursor: 'pointer',
+              fontSize: 15, fontWeight: 700,
+              fontFamily: 'system-ui, sans-serif',
+              WebkitTapHighlightColor: 'transparent',
+            }}
+          >Tillåt platsdelning</button>
+          <button
+            onClick={onDeny}
+            style={{
+              padding: '13px', borderRadius: 14, background: 'none',
+              color: T.textMuted, border: `1px solid ${T.border}`,
+              cursor: 'pointer', fontSize: 14, fontWeight: 600,
+              fontFamily: 'system-ui, sans-serif',
+              WebkitTapHighlightColor: 'transparent',
+            }}
+          >Inte nu — välj stad manuellt</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Shell() {
   const { theme: T } = useTheme();
-  const [tab, setTab]             = useState('home');
+  const { location, dispatch } = useApp();
+  const [tab, setTab]               = useState('home');
   const [showMonthly, setShowMonthly] = useState(false);
-  // Tab bar visibility — hidden while PDF reader is open
   const [tabBarVisible, setTabBarVisible] = useState(true);
+  const [ebooksReset, setEbooksReset] = useState(0); // bump to reset ebooks to library
+  const [showGpsPrompt, setShowGpsPrompt] = useState(false);
+  const [gpsLoading, setGpsLoading] = useState(false);
+
+  // Show GPS prompt only if: never shown before AND no cached location
+  useEffect(() => {
+    const alreadyShown = localStorage.getItem(GPS_PROMPT_KEY);
+    if (!alreadyShown && !location) {
+      // Small delay so app renders first
+      const t = setTimeout(() => setShowGpsPrompt(true), 600);
+      return () => clearTimeout(t);
+    }
+  }, []); // eslint-disable-line
+
+  const handleAllowGps = () => {
+    setShowGpsPrompt(false);
+    localStorage.setItem(GPS_PROMPT_KEY, 'done');
+    setGpsLoading(true);
+    if (!navigator.geolocation) { setGpsLoading(false); return; }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const { latitude, longitude } = pos.coords;
+          const geo = await reverseGeocode(latitude, longitude);
+          dispatch({ type: 'SET_LOCATION', payload: { latitude, longitude, ...geo } });
+        } catch {}
+        setGpsLoading(false);
+      },
+      () => setGpsLoading(false),
+      { enableHighAccuracy: false, maximumAge: 60000, timeout: 10000 }
+    );
+  };
+
+  const handleDenyGps = () => {
+    setShowGpsPrompt(false);
+    localStorage.setItem(GPS_PROMPT_KEY, 'done');
+  };
+
+  const handleTabPress = (id) => {
+    if (id === 'ebooks') {
+      if (tab === 'ebooks') {
+        // Already on ebooks — reset to library
+        setEbooksReset(n => n + 1);
+      } else {
+        setTab('ebooks');
+        setEbooksReset(n => n + 1); // always reset when switching to ebooks
+      }
+      setShowMonthly(false);
+      return;
+    }
+    setTab(id);
+    setShowMonthly(false);
+  };
 
   const renderScreen = () => {
     if (tab === 'prayer' && showMonthly) return <MonthlyScreen onBack={() => setShowMonthly(false)} />;
@@ -43,6 +157,7 @@ function Shell() {
           <EbooksScreen
             onReaderOpen={() => setTabBarVisible(false)}
             onReaderClose={() => setTabBarVisible(true)}
+            resetToLibrary={ebooksReset}
           />
         );
       case 'settings': return <SettingsScreen />;
@@ -58,6 +173,28 @@ function Shell() {
       overflow: 'hidden', maxWidth: 500, margin: '0 auto',
       position: 'relative',
     }}>
+      {/* GPS location prompt */}
+      {showGpsPrompt && (
+        <LocationPrompt onAllow={handleAllowGps} onDeny={handleDenyGps} T={T} />
+      )}
+
+      {/* GPS loading indicator */}
+      {gpsLoading && (
+        <div style={{
+          position: 'fixed', top: 'max(12px, env(safe-area-inset-top))', left: '50%',
+          transform: 'translateX(-50%)', zIndex: 999,
+          background: T.card, border: `1px solid ${T.border}`,
+          borderRadius: 20, padding: '8px 16px', fontSize: 12,
+          color: T.textSecondary, fontFamily: 'system-ui',
+          boxShadow: '0 4px 16px rgba(0,0,0,.15)',
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <div style={{ width: 12, height: 12, borderRadius: '50%', border: `2px solid ${T.border}`, borderTopColor: T.accent, animation: 'spin .7s linear infinite' }} />
+          Hämtar din plats…
+          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        </div>
+      )}
+
       <div key={tab + (showMonthly ? '-monthly' : '')} style={{
         flex: 1, overflowY: 'auto', overflowX: 'hidden',
         WebkitOverflowScrolling: 'touch',
@@ -77,16 +214,12 @@ function Shell() {
         width: 'calc(100% - 32px)',
         maxWidth: 460,
         display: 'flex',
-        background: T.isDark
-          ? 'rgba(18,18,18,0.82)'
-          : 'rgba(245,248,247,0.82)',
+        background: T.isDark ? 'rgba(18,18,18,0.82)' : 'rgba(245,248,247,0.82)',
         backdropFilter: 'blur(24px)',
         WebkitBackdropFilter: 'blur(24px)',
         borderRadius: 28,
         border: `1px solid ${T.border}`,
-        boxShadow: T.isDark
-          ? '0 4px 24px rgba(0,0,0,0.4)'
-          : '0 4px 24px rgba(0,0,0,0.08)',
+        boxShadow: T.isDark ? '0 4px 24px rgba(0,0,0,0.4)' : '0 4px 24px rgba(0,0,0,0.08)',
         padding: '6px 4px',
         zIndex: 200,
         transition: 'transform 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -96,11 +229,10 @@ function Shell() {
           return (
             <button
               key={t.id}
-              onClick={() => { setTab(t.id); setShowMonthly(false); }}
+              onClick={() => handleTabPress(t.id)}
               style={{
                 flex: 1, display: 'flex', flexDirection: 'column',
-                alignItems: 'center', gap: 3,
-                padding: '7px 2px',
+                alignItems: 'center', gap: 3, padding: '7px 2px',
                 background: active
                   ? T.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(36,100,93,0.08)'
                   : 'none',
@@ -117,11 +249,7 @@ function Shell() {
                   alt={t.label}
                   style={{
                     width: 24, height: 24, objectFit: 'contain',
-                    filter: active
-                      ? svgColorFilter(T.isDark)
-                      : T.isDark
-                        ? 'invert(60%) opacity(0.45)'
-                        : 'invert(0%) opacity(0.35)',
+                    filter: active ? svgColorFilter(T.isDark) : T.isDark ? 'invert(60%) opacity(0.45)' : 'invert(0%) opacity(0.35)',
                     transition: 'filter .2s',
                   }}
                 />
@@ -140,9 +268,7 @@ function Shell() {
                 opacity: active ? 1 : 0.6,
                 whiteSpace: 'nowrap',
                 transition: 'all .2s',
-              }}>
-                {t.label}
-              </span>
+              }}>{t.label}</span>
             </button>
           );
         })}

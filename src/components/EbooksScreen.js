@@ -629,9 +629,6 @@ function BookDetail({ book, allBooks, onBack, onRead, onToggleFav, T }) {
             <div style={{ fontSize:15, fontWeight:600, color:'rgba(255,255,255,.95)', fontFamily:'system-ui', marginBottom:10, textShadow:'0 1px 4px rgba(0,0,0,.5)' }}>{book.author}</div>
             <div style={{ display:'flex', gap:7, justifyContent:'center', flexWrap:'wrap' }}>
               <CatChip categoryId={book.category} T={T} />
-              {book.pageCount && <span style={{ fontSize:11, fontWeight:600, color:'#fff', background:'rgba(0,0,0,.45)', padding:'4px 11px', borderRadius:20, fontFamily:'system-ui', backdropFilter:'blur(4px)' }}>{book.pageCount} sidor</span>}
-              {readingLabel && <span style={{ fontSize:11, fontWeight:600, color:'#fff', background:'rgba(0,0,0,.45)', padding:'4px 11px', borderRadius:20, fontFamily:'system-ui', backdropFilter:'blur(4px)' }}>⏱ ca {readingLabel}</span>}
-              {book.publishedYear && <span style={{ fontSize:11, fontWeight:600, color:'#fff', background:'rgba(0,0,0,.35)', padding:'4px 11px', borderRadius:20, fontFamily:'system-ui', backdropFilter:'blur(4px)' }}>{book.publishedYear}</span>}
             </div>
           </div>
         </div>
@@ -683,7 +680,24 @@ function BookDetail({ book, allBooks, onBack, onRead, onToggleFav, T }) {
 
         <div style={{ marginBottom:22 }}>
           <SectionLabel label="Om boken" T={T} />
-          <p style={{ fontSize:15, lineHeight:1.75, color:T.textSecondary, margin:0 }}>{book.longDescription}</p>
+          <p style={{ fontSize:15, lineHeight:1.75, color:T.textSecondary, margin:'0 0 14px' }}>{book.longDescription}</p>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:'6px 20px' }}>
+            {book.pageCount && (
+              <span style={{ fontSize:13, color:T.textMuted, fontFamily:'system-ui' }}>
+                📄 <strong style={{ color:T.text }}>{book.pageCount}</strong> sidor
+              </span>
+            )}
+            {readingLabel && (
+              <span style={{ fontSize:13, color:T.textMuted, fontFamily:'system-ui' }}>
+                ⏱ Ca <strong style={{ color:T.text }}>{readingLabel}</strong> att läsa
+              </span>
+            )}
+            {book.publishedYear && (
+              <span style={{ fontSize:13, color:T.textMuted, fontFamily:'system-ui' }}>
+                📅 Utgiven <strong style={{ color:T.text }}>{book.publishedYear}</strong>
+              </span>
+            )}
+          </div>
         </div>
 
 
@@ -862,6 +876,8 @@ function Section({ title, children, T }) {
 }
 
 function BookRow({ book, onSelect, T, idx }) {
+  const mins = book.pageCount ? Math.round(book.pageCount * 1.5) : null;
+  const timeLabel = mins ? (mins >= 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins} min`) : null;
   return (
     <button onClick={onSelect} style={{
       display:'flex', alignItems:'center', gap:14,
@@ -873,10 +889,11 @@ function BookRow({ book, onSelect, T, idx }) {
       <Cover book={book} w={64} h={90} T={T} />
       <div style={{ flex:1, minWidth:0 }}>
         <div style={{ fontSize:14, fontWeight:700, color:T.text, marginBottom:3, lineHeight:1.3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontFamily:"'Georgia',serif" }}>{book.title}</div>
-        <div style={{ fontSize:12, color:T.textSecondary, marginBottom:6, fontWeight:500 }}>{book.author}</div>
+        <div style={{ fontSize:12, color:T.textSecondary, marginBottom:5, fontWeight:500 }}>{book.author}</div>
         <div style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
           <CatChip categoryId={book.category} T={T} small />
           {book.pageCount && <span style={{ fontSize:9, color:T.textMuted }}>{book.pageCount} s.</span>}
+          {timeLabel && <span style={{ fontSize:9, color:T.textMuted }}>⏱ {timeLabel}</span>}
           {!book.available && <span style={{ fontSize:9, color:T.textMuted, background:T.bgSecondary, padding:'2px 7px', borderRadius:10 }}>Snart</span>}
           {book.isFavorite && <span style={{ fontSize:11 }}>❤️</span>}
         </div>
@@ -891,13 +908,23 @@ function BookRow({ book, onSelect, T, idx }) {
    ROOT SCREEN
    Passes isReaderOpen up so App.js can hide/show the tab bar.
 ───────────────────────────────────────────────────────────── */
-export default function EbooksScreen({ onReaderOpen, onReaderClose }) {
+export default function EbooksScreen({ onReaderOpen, onReaderClose, resetToLibrary }) {
   const { theme: T } = useTheme();
   const { books, toggleFavorite, setLastReadPage, addBookmark, removeBookmark, markOpened } = useBooks();
 
   const [view,       setView]       = useState('library');
   const [selectedId, setSelectedId] = useState(null);
   const [readerPage, setReaderPage] = useState(null);
+
+  // When tab is pressed again, reset to library
+  useEffect(() => {
+    if (resetToLibrary) {
+      setView('library');
+      setSelectedId(null);
+      setReaderPage(null);
+      onReaderClose?.();
+    }
+  }, [resetToLibrary]); // eslint-disable-line
 
   const selectedBook = useMemo(() => books.find(b => b.id === selectedId) || null, [books, selectedId]);
 
