@@ -4,6 +4,7 @@ import SettingsScreen from './SettingsScreen';
 import AboutScreen from './AboutScreen';
 import EbooksScreen from './EbooksScreen';
 import BookingScreen from './BookingScreen';
+import { useBookingNotifications } from '../hooks/useBookingNotifications';
 import AboutIcon from '../icons/about-svgrepo-com.svg';
 import CharityIcon from '../icons/charity-svgrepo-com.svg';
 import SwishLogo from '../icons/swish-logo.svg';
@@ -64,7 +65,7 @@ function SettingsGearIcon({ color }) {
   );
 }
 
-function GridCard({ item, onPress, T }) {
+function GridCard({ item, onPress, T, badge = 0 }) {
   const accent = item.accentColor || T.accent;
   return (
     <button
@@ -83,8 +84,20 @@ function GridCard({ item, onPress, T }) {
         gap: 8,
         transition: 'transform .12s',
         WebkitUserSelect: 'none',
+        position: 'relative',
       }}
     >
+      {badge > 0 && (
+        <div style={{
+          position: 'absolute', top: 10, right: 10,
+          minWidth: 18, height: 18, borderRadius: 9,
+          background: '#ef4444', color: '#fff',
+          fontSize: 10, fontWeight: 800, fontFamily: 'system-ui',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '0 4px', boxSizing: 'border-box',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
+        }}>{badge > 9 ? '9+' : badge}</div>
+      )}
       <div style={{
         width: 56, height: 56, borderRadius: 16,
         background: item.id === 'support' ? 'transparent' : `${accent}18`,
@@ -260,6 +273,15 @@ function SupportScreen({ onBack, T }) {
 export default function MoreScreen({ onTabBarHide, onTabBarShow }) {
   const { theme: T } = useTheme();
   const [view, setView] = useState('menu');
+  const { visitorUnread, adminUnread, markVisitorSeen, markAdminSeen } = useBookingNotifications();
+
+  const bookingBadge = visitorUnread + adminUnread;
+
+  const handleOpenBooking = () => {
+    markVisitorSeen();
+    markAdminSeen();
+    setView('booking');
+  };
 
   if (view === 'settings') return <SettingsScreen onBack={() => setView('menu')} />;
   if (view === 'ebooks')   return <EbooksScreen onReaderOpen={() => {}} onReaderClose={() => {}} resetToLibrary={false} onTabBarHide={onTabBarHide} onTabBarShow={onTabBarShow} onBack={() => setView('menu')} />;
@@ -302,8 +324,9 @@ export default function MoreScreen({ onTabBarHide, onTabBarShow }) {
             <GridCard
               key={item.id}
               item={item}
-              onPress={() => setView(item.id)}
+              onPress={item.id === 'booking' ? handleOpenBooking : () => setView(item.id)}
               T={T}
+              badge={item.id === 'booking' ? bookingBadge : 0}
             />
           ))}
         </div>

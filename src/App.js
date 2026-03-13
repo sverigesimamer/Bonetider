@@ -14,6 +14,7 @@ import DhikrScreen       from './components/DhikrScreen';
 import MoreScreen        from './components/MoreScreen';
 import MoreAppIcon       from './icons/more-app-svgrepo-com.svg';
 import { useYoutubeLive } from './hooks/useYoutubeLive';
+import { useBookingNotifications } from './hooks/useBookingNotifications';
 
 import DhikrMenuIcon     from './icons/dhikr-tab.svg';
 
@@ -62,6 +63,7 @@ function Shell() {
   const [moreResetKey, setMoreResetKey]   = useState(0);
   const scrollContainerRef = useRef(null);
   const { isLive, stream } = useYoutubeLive();
+  const { totalUnread } = useBookingNotifications();
 
   // Reset scroll to top when tab or monthly view changes
   useEffect(() => {
@@ -216,19 +218,32 @@ function Shell() {
               }}
             >
               {t.type === 'custom' ? (
-                <img
-                  src={t.icon === 'kaba' ? KabaIcon : t.icon === 'dhikr' ? DhikrMenuIcon : t.icon === 'more' ? MoreAppIcon : PrayerTimesIcon}
-                  alt={t.label}
-                  style={{
-                    width: 24, height: 24, objectFit: 'contain',
-                  filter: active
-                    ? svgColorFilter(T.isDark)
-                    : T.isDark
-                      ? 'invert(48%) sepia(60%) saturate(400%) hue-rotate(120deg) brightness(90%)'
-                      : 'none',   // full opacity black in light mode when inactive
-                    transition: 'filter .2s',
-                  }}
-                />
+                <div style={{ position: 'relative', display: 'inline-flex' }}>
+                  <img
+                    src={t.icon === 'kaba' ? KabaIcon : t.icon === 'dhikr' ? DhikrMenuIcon : t.icon === 'more' ? MoreAppIcon : PrayerTimesIcon}
+                    alt={t.label}
+                    style={{
+                      width: 24, height: 24, objectFit: 'contain',
+                    filter: active
+                      ? svgColorFilter(T.isDark)
+                      : T.isDark
+                        ? 'invert(48%) sepia(60%) saturate(400%) hue-rotate(120deg) brightness(90%)'
+                        : 'none',
+                      transition: 'filter .2s',
+                    }}
+                  />
+                  {t.id === 'more' && totalUnread > 0 && (
+                    <div style={{
+                      position: 'absolute', top: -3, right: -4,
+                      minWidth: 14, height: 14, borderRadius: 7,
+                      background: '#ef4444', color: '#fff',
+                      fontSize: 8, fontWeight: 800, fontFamily: 'system-ui',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      padding: '0 3px', boxSizing: 'border-box',
+                      border: `1.5px solid ${T.isDark ? 'rgba(18,18,18,0.9)' : 'rgba(245,248,247,0.9)'}`,
+                    }}>{totalUnread > 9 ? '9+' : totalUnread}</div>
+                  )}
+                </div>
               ) : (
                 <div style={{ position: 'relative', display: 'inline-flex' }}>
                   <SvgIcon
