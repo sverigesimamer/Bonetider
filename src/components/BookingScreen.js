@@ -60,6 +60,7 @@ function getAvailableStarts(bookings,iso,durationHours,excludeId=null){
   const booked=getBookedHours(bookings,iso,excludeId);
   const starts=[];
   for(let h=OPEN_HOUR;h<=CLOSE_HOUR-durationHours;h++){
+    if(isHourPast(iso,h,durationHours)) continue;
     let ok=true; for(let i=0;i<durationHours;i++){ if(booked.has(h+i)){ok=false;break;} } if(ok) starts.push(h);
   }
   return starts;
@@ -71,6 +72,18 @@ function getRecurDates(startISO,recurrence,count){
   return dates;
 }
 function slotColor(status){ return status==='available'?'#22c55e':status==='pending'?'#f59e0b':status==='booked'?'#ef4444':'#888'; }
+
+// Returnerar true om ett tidsblock redan har passerat eller snart är för sent att boka.
+// Regeln: startH är passerat om nuvarande tid >= startH + 30 min.
+// Dvs klockan måste vara INNAN halv-timmen in i blocket för att det ska vara bokningsbart.
+function isHourPast(iso, startH, durationHours) {
+  const todayISO = toISO(new Date());
+  if (iso !== todayISO) return false; // bara relevant för idag
+  const now = new Date();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  // Sista bokningsbara minut = startH * 60 + 29 (dvs fram till xx:29)
+  return nowMinutes >= startH * 60 + 30;
+}
 
 /* ── UI primitives ── */
 function BackButton({onBack,T}){
@@ -194,20 +207,27 @@ function TimeSlotPanel({bookings,date,isAdmin,durationHours,onSelectSlot,onClose
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
-    {availableStarts.length===0&&<div style={{padding:'20px 16px',textAlign:'center',color:T.textMuted,fontSize:13,fontFamily:'system-ui'}}>Inga lediga tider för {durationHours}h detta datum.</div>}
+    {availableStarts.length===0&&<div style={{padding:'20px 16px',textAlign:'center',color:T.textMuted,fontSize:13,fontFamily:'system-ui'}}>
+      {slots.every(s=>isHourPast(iso,s.startH,durationHours))
+        ? 'Alla bokningsbara tider har passerat för idag.'
+        : `Inga lediga tider för ${durationHours}h detta datum.`}
+    </div>}
     <div style={{padding:'8px 10px 10px',display:'flex',flexDirection:'column',gap:6}}>
       {slots.map(({startH,label,status,conflictBooking})=>{
-        const color=slotColor(status); const canBook=status==='available';
-        return <div key={startH} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',background:T.cardElevated,borderRadius:10,border:`1px solid ${canBook?`${color}44`:T.border}`,opacity:!canBook&&!isAdmin?0.55:1}}>
+        const past=isHourPast(iso,startH,durationHours);
+        const color=past?'#888':slotColor(status);
+        const canBook=!past&&status==='available';
+        return <div key={startH} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',background:T.cardElevated,borderRadius:10,border:`1px solid ${canBook?`${color}44`:T.border}`,opacity:past?0.35:(!canBook&&!isAdmin?0.55:1)}}>
           <div style={{display:'flex',alignItems:'center',gap:10}}>
             <div style={{width:8,height:8,borderRadius:'50%',background:color,flexShrink:0}}/>
-            <span style={{fontSize:14,fontWeight:600,color:T.text,fontFamily:'system-ui'}}>{label}</span>
-            {isAdmin&&conflictBooking&&<span style={{fontSize:11,color:T.textMuted,fontFamily:'system-ui'}}>· {conflictBooking.name}</span>}
+            <span style={{fontSize:14,fontWeight:600,color:past?T.textMuted:T.text,fontFamily:'system-ui'}}>{label}</span>
+            {past&&<span style={{fontSize:10,color:T.textMuted,fontFamily:'system-ui'}}>Passerad</span>}
+            {!past&&isAdmin&&conflictBooking&&<span style={{fontSize:11,color:T.textMuted,fontFamily:'system-ui'}}>· {conflictBooking.name}</span>}
           </div>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
-            {status!=='available'&&<Badge status={status}/>}
+            {!past&&status!=='available'&&<Badge status={status}/>}
             {canBook&&<button onClick={()=>onSelectSlot(date,label,startH,durationHours)} style={{background:T.accent,color:'#fff',border:'none',borderRadius:8,padding:'5px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'system-ui',WebkitTapHighlightColor:'transparent'}}>Välj</button>}
-            {isAdmin&&conflictBooking&&<button onClick={()=>onSelectSlot(date,label,startH,durationHours,conflictBooking)} style={{background:`${T.accent}22`,color:T.accent,border:'none',borderRadius:8,padding:'5px 10px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'system-ui'}}>Detaljer</button>}
+            {!past&&isAdmin&&conflictBooking&&<button onClick={()=>onSelectSlot(date,label,startH,durationHours,conflictBooking)} style={{background:`${T.accent}22`,color:T.accent,border:'none',borderRadius:8,padding:'5px 10px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'system-ui'}}>Detaljer</button>}
           </div>
         </div>;
       })}
@@ -711,7 +731,7 @@ function AdminPanel({bookings,onAction,onEdit,onDelete,onAddRecurring,onBack,act
   const [commentError,setCommentError]=useState('');
   const [showAddRecur,setShowAddRecur]=useState(false);
   const [showEditForm,setShowEditForm]=useState(false);
-  const [deleteDialog,setDeleteDialog]=useState(null);
+  const [showDeleteDialog,setShowDeleteDialog]=useState(false);
   const filtered=bookings.filter(b=>filter==='all'||b.status===filter).sort((a,b)=>b.created_at-a.created_at);
 
   const handleAction=(booking,action)=>{
@@ -724,18 +744,18 @@ function AdminPanel({bookings,onAction,onEdit,onDelete,onAddRecurring,onBack,act
   if(showEditForm&&selected) return <AdminEditForm booking={selected} bookings={bookings} onSubmit={(data)=>{onEdit(data);setShowEditForm(false);setSelected(null);}} onBack={()=>setShowEditForm(false)} loading={actionLoading} T={T}/>;
 
   if(selected) return <div style={{padding:'20px 16px',fontFamily:'system-ui'}}>
-    {deleteDialog&&<ConfirmDialog
+    {showDeleteDialog&&<ConfirmDialog
       title="Ta bort bokning"
-      message={`Bokningen för ${selected.name} (${isoToDisplay(selected.date)} · ${selected.time_slot}) kommer tas bort permanent. Besökaren får en förklaring.`}
+      message={`Bokningen för ${selected.name} (${isoToDisplay(selected.date)} · ${selected.time_slot}) tas bort permanent. Besökaren får en notis med din förklaring.`}
       confirmLabel="Ta bort"
       confirmColor="#ef4444"
       requireText="FÖRKLARING TILL BESÖKAREN *"
       requirePlaceholder="Förklara varför bokningen tas bort..."
-      onConfirm={(text)=>{onDelete(selected.id,text);setDeleteDialog(null);setSelected(null);}}
-      onCancel={()=>setDeleteDialog(null)}
+      onConfirm={(text)=>{onDelete(selected.id,text);setShowDeleteDialog(false);setSelected(null);}}
+      onCancel={()=>setShowDeleteDialog(false)}
       T={T}
     />}
-    <BackButton onBack={()=>{setSelected(null);setComment('');setCommentError('');}} T={T}/>
+    <BackButton onBack={()=>{setSelected(null);setComment('');setCommentError('');setShowDeleteDialog(false);}} T={T}/>
     <div style={{fontSize:20,fontWeight:800,color:T.text,marginTop:16,marginBottom:16}}>Bokningsdetaljer</div>
     <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:'16px',marginBottom:16}}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
@@ -753,12 +773,16 @@ function AdminPanel({bookings,onAction,onEdit,onDelete,onAddRecurring,onBack,act
           <div style={{fontSize:13,color:'#8b5cf6'}}>{RECUR_OPTIONS.find(o=>o.value===selected.recurrence)?.label}</div>
         </div>
       )}
+      {selected.admin_comment&&<div style={{marginTop:10,padding:'8px 10px',background:`${T.accent}11`,borderRadius:8}}>
+        <div style={{fontSize:10,fontWeight:700,color:T.textMuted,letterSpacing:'.5px',marginBottom:2}}>SENASTE KOMMENTAR</div>
+        <div style={{fontSize:13,color:T.text}}>{selected.admin_comment}</div>
+      </div>}
     </div>
 
-    {/* Godkänn / Avböj för pending och edit_pending */}
-    {(selected.status==='pending'||selected.status==='edit_pending')&&<div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:12}}>
-      {selected.status==='edit_pending'&&<div style={{background:'#f9731618',border:'1px solid #f9731633',borderRadius:10,padding:'10px 12px',fontSize:12,color:'#f97316',fontFamily:'system-ui'}}>
-        Besökaren har begärt en ändring. Godkänn för att bekräfta de nya uppgifterna, eller avböj för att behålla originalet.
+    {/* Godkänn / Avböj — pending och edit_pending */}
+    {(selected.status==='pending'||selected.status==='edit_pending')&&<div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:16}}>
+      {selected.status==='edit_pending'&&<div style={{background:'#f9731618',border:'1px solid #f9731633',borderRadius:10,padding:'10px 12px',fontSize:12,color:'#f97316'}}>
+        Besökaren har begärt en ändring. Godkänn för att bekräfta, eller avböj för att behålla originalet.
       </div>}
       <Textarea label="KOMMENTAR (obligatorisk vid avböjning)" value={comment} onChange={setComment} placeholder="Ange orsak om du avböjer..." T={T}/>
       {commentError&&<div style={{fontSize:12,color:T.error,background:`${T.error}18`,padding:'8px 12px',borderRadius:8}}>{commentError}</div>}
@@ -774,20 +798,20 @@ function AdminPanel({bookings,onAction,onEdit,onDelete,onAddRecurring,onBack,act
       </div>
     </div>}
 
-    {/* Ändra / Ta bort — för alla icke-cancellerade */}
+    {/* Ändra / Ta bort — tillgängligt för ALLA statusar utom cancelled */}
     {selected.status!=='cancelled'&&<div style={{display:'flex',gap:10,marginTop:4}}>
-      <button onClick={()=>setShowEditForm(true)} style={{flex:1,padding:'11px',borderRadius:12,border:'1px solid #3b82f644',background:'#3b82f611',color:'#3b82f6',fontSize:14,fontWeight:700,cursor:'pointer',fontFamily:'system-ui',WebkitTapHighlightColor:'transparent',display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        Ändra
+      <button onClick={()=>setShowEditForm(true)} style={{flex:1,padding:'13px',borderRadius:12,border:'1px solid #3b82f644',background:'#3b82f611',color:'#3b82f6',fontSize:14,fontWeight:700,cursor:'pointer',fontFamily:'system-ui',WebkitTapHighlightColor:'transparent',display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        Ändra bokning
       </button>
-      <button onClick={()=>setDeleteDialog(true)} style={{flex:1,padding:'11px',borderRadius:12,border:'1px solid #ef444433',background:'#ef444411',color:'#ef4444',fontSize:14,fontWeight:700,cursor:'pointer',fontFamily:'system-ui',WebkitTapHighlightColor:'transparent',display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-        Ta bort
+      <button onClick={()=>setShowDeleteDialog(true)} disabled={actionLoading} style={{flex:1,padding:'13px',borderRadius:12,border:'1px solid #ef444433',background:'#ef444411',color:'#ef4444',fontSize:14,fontWeight:700,cursor:actionLoading?'default':'pointer',fontFamily:'system-ui',WebkitTapHighlightColor:'transparent',display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        {actionLoading?'...':'Ta bort'}
       </button>
     </div>}
   </div>;
 
-  const pending=bookings.filter(b=>b.status==='pending').length;
+  const pending=bookings.filter(b=>b.status==='pending'||b.status==='edit_pending').length;
   return <div style={{padding:'20px 16px',fontFamily:'system-ui'}}>
     <BackButton onBack={onBack} T={T}/>
     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:16,marginBottom:16}}>
