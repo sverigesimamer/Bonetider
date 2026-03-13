@@ -1,7 +1,7 @@
 {
   "files": {
     "main.css": "./static/css/main.00346464.css",
-    "main.js": "./static/js/main.afb14942.js",
+    "main.js": "./static/js/main.9ece07de.js",
     "static/media/prayer-times.svg": "./static/media/prayer-times.bb60e4fdc0f36191881b998f2e44ae10.svg",
     "static/media/charity-svgrepo-com.svg": "./static/media/charity-svgrepo-com.589729fed54a7ec980eff273d7e5153b.svg",
     "static/media/swish-logo.svg": "./static/media/swish-logo.beb9bff5dda4b18f7d2548de42c783ea.svg",
@@ -13,8 +13,8 @@
     "static/media/sjukdom-begravning.svg": "./static/media/sjukdom-begravning.b441cdbe8ab13d44981bf80fda4cbee8.svg",
     "static/media/dhikr-tab.svg": "./static/media/dhikr-tab.bb834a39eb0ef396ec85a48fdce3a935.svg",
     "static/media/familj-och-ovrigt.svg": "./static/media/familj-och-ovrigt.1fd7727df7bf4e628c34b864399c2a98.svg",
-    "static/media/kaba.svg": "./static/media/kaba.8106ff856d743d5beac495168c78f8b7.svg",
     "static/media/download-svgrepo-com.svg": "./static/media/download-svgrepo-com.e19e4765f223f61db42d28f92ddbcd4e.svg",
+    "static/media/kaba.svg": "./static/media/kaba.1882e9a5e65dcd8416b6c92764a45612.svg",
     "static/media/about-svgrepo-com.svg": "./static/media/about-svgrepo-com.b50b217d971c431f613ce0158aaba1b5.svg",
     "index.html": "./index.html",
     "static/media/more-app-svgrepo-com.svg": "./static/media/more-app-svgrepo-com.c0cd37187765c69f4abd19db19f72729.svg",
@@ -23,10 +23,10 @@
     "static/media/bonen.svg": "./static/media/bonen.0e618d84a2e5e150cc13d1cbf70728b7.svg",
     "static/media/svarigheter-och-skydd.svg": "./static/media/svarigheter-och-skydd.66efee627f95dbfffd65764bdf478cd4.svg",
     "main.00346464.css.map": "./static/css/main.00346464.css.map",
-    "main.afb14942.js.map": "./static/js/main.afb14942.js.map"
+    "main.9ece07de.js.map": "./static/js/main.9ece07de.js.map"
   },
   "entrypoints": [
     "static/css/main.00346464.css",
-    "static/js/main.afb14942.js"
+    "static/js/main.9ece07de.js"
   ]
 }
