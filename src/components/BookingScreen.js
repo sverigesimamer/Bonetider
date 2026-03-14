@@ -33,7 +33,7 @@ const RECUR_OPTIONS      = [
   { value:'weekly',  label:'Veckovis' },
   { value:'monthly', label:'Månadsvis' },
 ];
-const RECUR_COUNT_OPTIONS = [2,3,4,5,6,8,10,12];
+const NO_END = 'no_end'; // sentinel för "inget slutdatum"
 
 function toISO(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function parseISO(s){ const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
@@ -82,14 +82,15 @@ function getAvailableStarts(bookings,iso,durationHours,excludeId=null){
   return starts;
 }
 function hasAnyAvailable(bookings,date,durationHours){ return getAvailableStarts(bookings,toISO(date),durationHours).length>0; }
-function getRecurDates(startISO,recurrence){
+function getRecurDates(startISO, recurrence, recurCount){
   if(recurrence==='none') return [startISO];
   const dates=[startISO];
   const base=parseISO(startISO);
-  // Generera upp till 5 år framåt
+  const useNoEnd = recurCount===NO_END || recurCount===undefined;
   const maxDate=new Date(base); maxDate.setFullYear(maxDate.getFullYear()+5);
+  const limit = useNoEnd ? Infinity : Number(recurCount);
   let i=1;
-  while(true){
+  while(dates.length < limit){
     const d=new Date(base);
     if(recurrence==='weekly') d.setDate(d.getDate()+7*i);
     if(recurrence==='monthly') d.setMonth(d.getMonth()+i);
@@ -184,89 +185,196 @@ function ConfirmDialog({title,message,confirmLabel,confirmColor='#ef4444',onConf
   </div>;
 }
 
-/* ── iOS-style scroll wheel duration picker ── */
-function DurationPicker({value, onChange, T}) {
+/* ── Generisk iOS-scroll-hjul ── */
+function ScrollPicker({options, value, onChange, label, formatFn, T}) {
   const ITEM_H = 44;
-  const VISIBLE = 3; // 3 synliga rader: en ovan, vald, en nedan
-  const containerH = ITEM_H * VISIBLE;
   const listRef = React.useRef(null);
+  const velRef = React.useRef(0);        // hastighet för momentum
+  const lastY = React.useRef(0);
+  const lastT = React.useRef(0);
+  const rafRef = React.useRef(null);
   const isDragging = React.useRef(false);
   const startY = React.useRef(0);
-  const startScrollTop = React.useRef(0);
-  const selectedIdx = DURATION_OPTIONS.indexOf(value) === -1 ? 0 : DURATION_OPTIONS.indexOf(value);
+  const startST = React.useRef(0);
 
-  // Scrolla till valt index vid mount och vid value-ändring — RAF för smooth
-  React.useEffect(() => {
+  const selectedIdx = React.useMemo(() => {
+    const i = options.indexOf(value);
+    return i === -1 ? 0 : i;
+  }, [options, value]);
+
+  // Scrolla till valt värde utan animation vid mount, med animation annars
+  const scrollTo = React.useCallback((idx, animate=false) => {
     if (!listRef.current) return;
-    const target = selectedIdx * ITEM_H;
-    requestAnimationFrame(() => {
-      if (listRef.current) listRef.current.scrollTop = target;
-    });
-  }, [selectedIdx, ITEM_H]);
+    const target = idx * ITEM_H;
+    if (animate) {
+      listRef.current.style.scrollBehavior = 'smooth';
+      listRef.current.scrollTop = target;
+      setTimeout(() => { if (listRef.current) listRef.current.style.scrollBehavior = ''; }, 300);
+    } else {
+      listRef.current.style.scrollBehavior = '';
+      listRef.current.scrollTop = target;
+    }
+  }, [ITEM_H]);
 
-  const snapToIndex = React.useCallback((idx) => {
-    const clamped = Math.max(0, Math.min(DURATION_OPTIONS.length - 1, idx));
-    if (listRef.current) listRef.current.scrollTop = clamped * ITEM_H;
-    onChange(DURATION_OPTIONS[clamped]);
-  }, [onChange]);
+  React.useEffect(() => {
+    requestAnimationFrame(() => scrollTo(selectedIdx, false));
+  }, [selectedIdx, scrollTo]);
 
-  const handleScroll = React.useCallback(() => {
-    if (!listRef.current || isDragging.current) return;
+  const snapNearest = React.useCallback(() => {
+    if (!listRef.current) return;
     const idx = Math.round(listRef.current.scrollTop / ITEM_H);
-    onChange(DURATION_OPTIONS[Math.max(0, Math.min(DURATION_OPTIONS.length - 1, idx))]);
-  }, [onChange]);
+    const clamped = Math.max(0, Math.min(options.length - 1, idx));
+    scrollTo(clamped, true);
+    onChange(options[clamped]);
+  }, [ITEM_H, options, onChange, scrollTo]);
 
-  // Touch drag
-  const onTouchStart = (e) => { isDragging.current=true; startY.current=e.touches[0].clientY; startScrollTop.current=listRef.current.scrollTop; };
-  const onTouchMove = (e) => { if(!isDragging.current) return; const dy=startY.current-e.touches[0].clientY; listRef.current.scrollTop=startScrollTop.current+dy; };
-  const onTouchEnd = () => { isDragging.current=false; const idx=Math.round(listRef.current.scrollTop/ITEM_H); snapToIndex(idx); };
+  // Momentum scroll
+  const runMomentum = React.useCallback(() => {
+    if (!listRef.current) return;
+    velRef.current *= 0.93;
+    listRef.current.scrollTop += velRef.current;
+    if (Math.abs(velRef.current) > 0.5) {
+      rafRef.current = requestAnimationFrame(runMomentum);
+    } else {
+      snapNearest();
+    }
+  }, [snapNearest]);
 
-  // Mouse drag (desktop)
-  const onMouseDown = (e) => { isDragging.current=true; startY.current=e.clientY; startScrollTop.current=listRef.current.scrollTop; };
-  const onMouseMove = (e) => { if(!isDragging.current) return; const dy=startY.current-e.clientY; listRef.current.scrollTop=startScrollTop.current+dy; };
-  const onMouseUp = () => { if(!isDragging.current) return; isDragging.current=false; const idx=Math.round(listRef.current.scrollTop/ITEM_H); snapToIndex(idx); };
+  // Touch
+  const onTouchStart = React.useCallback((e) => {
+    isDragging.current = true;
+    startY.current = e.touches[0].clientY;
+    startST.current = listRef.current.scrollTop;
+    lastY.current = e.touches[0].clientY;
+    lastT.current = Date.now();
+    velRef.current = 0;
+    cancelAnimationFrame(rafRef.current);
+  }, []);
 
-  return <div style={{display:'flex',flexDirection:'column',gap:8}}>
-    <label style={{fontSize:12,fontWeight:600,color:T.textMuted,fontFamily:'system-ui',letterSpacing:'.3px'}}>BOKNINGSLÄNGD</label>
-    <div style={{position:'relative',height:containerH,borderRadius:14,overflow:'hidden',border:`1px solid ${T.border}`,background:T.cardElevated,userSelect:'none',WebkitUserSelect:'none'}}>
-      {/* Övre + nedre fade — 1 rad för 3-raders picker */}
-      <div style={{position:'absolute',top:0,left:0,right:0,height:ITEM_H,background:`linear-gradient(to bottom, ${T.cardElevated}, transparent)`,zIndex:2,pointerEvents:'none'}}/>
-      <div style={{position:'absolute',bottom:0,left:0,right:0,height:ITEM_H,background:`linear-gradient(to top, ${T.cardElevated}, transparent)`,zIndex:2,pointerEvents:'none'}}/>
-      {/* Markerings-rad */}
-      <div style={{position:'absolute',top:'50%',left:0,right:0,height:ITEM_H,transform:'translateY(-50%)',background:`${T.accent}18`,borderTop:`1.5px solid ${T.accent}44`,borderBottom:`1.5px solid ${T.accent}44`,zIndex:1,pointerEvents:'none'}}/>
-      {/* Scroll-lista */}
-      <div
-        ref={listRef}
-        className="dur-scroll"
-        onScroll={handleScroll}
-        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
-        onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
-        style={{height:'100%',overflowY:'scroll',scrollSnapType:'y mandatory',scrollbarWidth:'none',msOverflowStyle:'none',WebkitOverflowScrolling:'touch',cursor:'grab'}}
-      >
-        <style>{`.dur-scroll::-webkit-scrollbar{display:none}`}</style>
-        {/* Padding top/bottom: 1 rad så första/sista hamnar i mitten */}
-        <div style={{height:ITEM_H}}/>
-        {DURATION_OPTIONS.map((h,i)=>{
-          const isSel=h===value;
-          return <div key={h} onClick={()=>snapToIndex(i)} style={{height:ITEM_H,display:'flex',alignItems:'center',justifyContent:'center',scrollSnapAlign:'center',cursor:'pointer',WebkitTapHighlightColor:'transparent'}}>
-            <span style={{fontSize:isSel?18:15,fontWeight:isSel?800:400,color:isSel?T.accent:T.textMuted,fontFamily:'system-ui',transition:'all .15s',letterSpacing:isSel?'-.3px':'0'}}>{fmtDuration(h)}</span>
-          </div>;
-        })}
-        <div style={{height:ITEM_H}}/>
+  const onTouchMove = React.useCallback((e) => {
+    if (!isDragging.current) return;
+    const dy = startY.current - e.touches[0].clientY;
+    listRef.current.scrollTop = startST.current + dy;
+    const now = Date.now();
+    const dt = now - lastT.current || 1;
+    velRef.current = (lastY.current - e.touches[0].clientY) / dt * 16;
+    lastY.current = e.touches[0].clientY;
+    lastT.current = now;
+  }, []);
+
+  const onTouchEnd = React.useCallback(() => {
+    isDragging.current = false;
+    if (Math.abs(velRef.current) > 1) {
+      rafRef.current = requestAnimationFrame(runMomentum);
+    } else {
+      snapNearest();
+    }
+  }, [runMomentum, snapNearest]);
+
+  // Mouse
+  const onMouseDown = React.useCallback((e) => {
+    isDragging.current = true;
+    startY.current = e.clientY;
+    startST.current = listRef.current.scrollTop;
+    lastY.current = e.clientY;
+    lastT.current = Date.now();
+    velRef.current = 0;
+    cancelAnimationFrame(rafRef.current);
+  }, []);
+
+  const onMouseMove = React.useCallback((e) => {
+    if (!isDragging.current) return;
+    const dy = startY.current - e.clientY;
+    listRef.current.scrollTop = startST.current + dy;
+    const now = Date.now();
+    const dt = now - lastT.current || 1;
+    velRef.current = (lastY.current - e.clientY) / dt * 16;
+    lastY.current = e.clientY;
+    lastT.current = now;
+  }, []);
+
+  const onMouseUp = React.useCallback(() => {
+    if (!isDragging.current) return;
+    isDragging.current = false;
+    if (Math.abs(velRef.current) > 1) {
+      rafRef.current = requestAnimationFrame(runMomentum);
+    } else {
+      snapNearest();
+    }
+  }, [runMomentum, snapNearest]);
+
+  React.useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:8}}>
+      {label && <label style={{fontSize:12,fontWeight:600,color:T.textMuted,fontFamily:'system-ui',letterSpacing:'.3px'}}>{label}</label>}
+      <div style={{position:'relative',height:ITEM_H*3,borderRadius:14,overflow:'hidden',border:`1px solid ${T.border}`,background:T.cardElevated,userSelect:'none',WebkitUserSelect:'none'}}>
+        <div style={{position:'absolute',top:0,left:0,right:0,height:ITEM_H,background:`linear-gradient(to bottom,${T.cardElevated},transparent)`,zIndex:2,pointerEvents:'none'}}/>
+        <div style={{position:'absolute',bottom:0,left:0,right:0,height:ITEM_H,background:`linear-gradient(to top,${T.cardElevated},transparent)`,zIndex:2,pointerEvents:'none'}}/>
+        <div style={{position:'absolute',top:'50%',left:0,right:0,height:ITEM_H,transform:'translateY(-50%)',background:`${T.accent}18`,borderTop:`1.5px solid ${T.accent}44`,borderBottom:`1.5px solid ${T.accent}44`,zIndex:1,pointerEvents:'none'}}/>
+        <style>{`.sp-${label?.replace(/\s/g,'')||'x'}::-webkit-scrollbar{display:none}`}</style>
+        <div
+          ref={listRef}
+          className={`sp-${label?.replace(/\s/g,'')||'x'}`}
+          onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+          onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
+          style={{height:'100%',overflowY:'scroll',scrollbarWidth:'none',msOverflowStyle:'none',WebkitOverflowScrolling:'touch',cursor:'grab'}}
+        >
+          <div style={{height:ITEM_H}}/>
+          {options.map((opt, i) => {
+            const isSel = opt === value;
+            return (
+              <div key={opt} onClick={() => { scrollTo(i, true); onChange(opt); }}
+                style={{height:ITEM_H,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',WebkitTapHighlightColor:'transparent'}}>
+                <span style={{fontSize:isSel?18:15,fontWeight:isSel?800:400,color:isSel?T.accent:T.textMuted,fontFamily:'system-ui',transition:'color .15s, font-size .15s',letterSpacing:isSel?'-.3px':'0'}}>
+                  {formatFn ? formatFn(opt) : String(opt)}
+                </span>
+              </div>
+            );
+          })}
+          <div style={{height:ITEM_H}}/>
+        </div>
       </div>
     </div>
-  </div>;
+  );
 }
 
-function RecurrencePicker({recurrence,onChange,T}){
-  return <div style={{display:'flex',flexDirection:'column',gap:10}}>
-    <label style={{fontSize:12,fontWeight:600,color:T.textMuted,fontFamily:'system-ui',letterSpacing:'.3px'}}>UPPREPNING</label>
-    <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-      {RECUR_OPTIONS.map(o=>(
-        <button key={o.value} onClick={()=>onChange(o.value)} style={{padding:'7px 14px',borderRadius:20,border:`1px solid ${recurrence===o.value?T.accent:T.border}`,background:recurrence===o.value?`${T.accent}22`:'none',color:recurrence===o.value?T.accent:T.textMuted,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'system-ui',WebkitTapHighlightColor:'transparent'}}>{o.label}</button>
-      ))}
+function DurationPicker({value, onChange, T}) {
+  return <ScrollPicker options={DURATION_OPTIONS} value={value} onChange={onChange} label="BOKNINGSLÄNGD" formatFn={fmtDuration} T={T}/>;
+}
+
+/* Upprepningsalternativ för antal */
+// Genererar 1–104 (2 år veckovis) + no_end
+const RECUR_COUNT_OPTIONS_WEEKLY  = [...Array.from({length:104},(_,i)=>i+1), NO_END];
+const RECUR_COUNT_OPTIONS_MONTHLY = [...Array.from({length:60}, (_,i)=>i+1), NO_END];
+function fmtRecurCount(v, recurrence) {
+  if (v === NO_END) return 'Inget slutdatum (5 år)';
+  const unit = recurrence === 'monthly' ? (v===1?'månad':'månader') : (v===1?'vecka':'veckor');
+  return `${v} ${unit}`;
+}
+
+function RecurrencePicker({recurrence, onChange, recurCount, onRecurCountChange, T}){
+  const countOptions = recurrence === 'monthly' ? RECUR_COUNT_OPTIONS_MONTHLY : RECUR_COUNT_OPTIONS_WEEKLY;
+
+  return <div style={{display:'flex',flexDirection:'column',gap:12}}>
+    <div style={{display:'flex',flexDirection:'column',gap:8}}>
+      <label style={{fontSize:12,fontWeight:600,color:T.textMuted,fontFamily:'system-ui',letterSpacing:'.3px'}}>UPPREPNING</label>
+      <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+        {RECUR_OPTIONS.map(o=>(
+          <button key={o.value} onClick={()=>onChange(o.value)} style={{padding:'7px 14px',borderRadius:20,border:`1px solid ${recurrence===o.value?T.accent:T.border}`,background:recurrence===o.value?`${T.accent}22`:'none',color:recurrence===o.value?T.accent:T.textMuted,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'system-ui',WebkitTapHighlightColor:'transparent'}}>{o.label}</button>
+        ))}
+      </div>
     </div>
-    {recurrence!=='none'&&<div style={{fontSize:11,color:T.textMuted,fontFamily:'system-ui',padding:'4px 2px'}}>Bokningen upprepas tills vidare och kan avbokas när som helst.</div>}
+    {recurrence!=='none'&&(
+      <ScrollPicker
+        options={countOptions}
+        value={recurCount}
+        onChange={onRecurCountChange}
+        label="ANTAL UPPREPNINGAR"
+        formatFn={v => fmtRecurCount(v, recurrence)}
+        T={T}
+      />
+    )}
   </div>;
 }
 
@@ -397,10 +505,10 @@ function CalendarView({bookings,onSelectSlot,isAdmin,T}){
 function BookingForm({date,slotLabel:slot,durationHours,onSubmit,onBack,loading,bookings,T}){
   const [form,setForm]=useState({name:'',phone:'',email:'',activity:''});
   const [recurrence,setRecurrence]=useState('none');
-  const [recurCount,setRecurCount]=useState(4);
+  const [recurCount,setRecurCount]=useState(NO_END);
   const [error,setError]=useState('');
   const set=f=>v=>setForm(p=>({...p,[f]:v}));
-  const recurDates=useMemo(()=>recurrence==='none'?[toISO(date)]:getRecurDates(toISO(date),recurrence),[date,recurrence,recurCount]);
+  const recurDates=useMemo(()=>recurrence==='none'?[toISO(date)]:getRecurDates(toISO(date),recurrence,recurCount),[date,recurrence,recurCount]);
   const conflictDates=useMemo(()=>{
     if(recurrence==='none') return [];
     const startH=parseSlotStart(slot);
@@ -426,18 +534,26 @@ function BookingForm({date,slotLabel:slot,durationHours,onSubmit,onBack,loading,
       <Input label="E-POST" value={form.email} onChange={set('email')} placeholder="din@epost.se" required T={T} type="email"/>
       <Textarea label="AKTIVITET" value={form.activity} onChange={set('activity')} placeholder="Beskriv aktiviteten kort..." required T={T}/>
       <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:14,padding:'14px'}}>
-        <RecurrencePicker recurrence={recurrence} onChange={setRecurrence} T={T}/>
-        {recurrence!=='none'&&<div style={{marginTop:12}}>
-          <div style={{fontSize:11,fontWeight:700,color:T.textMuted,letterSpacing:'.3px',marginBottom:6}}>TILLFÄLLEN SOM INGÅR</div>
-          <div style={{display:'flex',flexDirection:'column',gap:4}}>
-            {recurDates.map((iso,i)=>{const hasConflict=conflictDates.includes(iso); return <div key={iso} style={{display:'flex',alignItems:'center',gap:8,fontSize:12,color:hasConflict?'#ef4444':T.text,fontFamily:'system-ui'}}>
-              <div style={{width:6,height:6,borderRadius:'50%',background:hasConflict?'#ef4444':T.accent,flexShrink:0}}/>
-              <span>{isoToDisplay(iso)} · {slot}</span>
-              {i===0&&<span style={{fontSize:10,color:T.textMuted}}>(valt datum)</span>}
-              {hasConflict&&<span style={{fontSize:10,color:'#ef4444'}}>– konflikt</span>}
-            </div>;})}
+        <RecurrencePicker recurrence={recurrence} onChange={r=>{setRecurrence(r);setRecurCount(NO_END);}} recurCount={recurCount} onRecurCountChange={setRecurCount} T={T}/>
+        {recurrence!=='none'&&recurDates.length>0&&<div style={{marginTop:12}}>
+          <div style={{fontSize:11,fontWeight:700,color:T.textMuted,letterSpacing:'.3px',marginBottom:8}}>UPPREPNING GÄLLER</div>
+          <div style={{background:T.cardElevated,borderRadius:10,padding:'10px 12px',display:'flex',flexDirection:'column',gap:6}}>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:12,fontFamily:'system-ui'}}>
+              <span style={{color:T.textMuted}}>Från</span>
+              <span style={{color:T.text,fontWeight:600}}>{isoToDisplay(recurDates[0])} · {slot}</span>
+            </div>
+            <div style={{height:1,background:T.border}}/>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:12,fontFamily:'system-ui'}}>
+              <span style={{color:T.textMuted}}>Till</span>
+              <span style={{color:T.text,fontWeight:600}}>{isoToDisplay(recurDates[recurDates.length-1])} · {slot}</span>
+            </div>
+            <div style={{height:1,background:T.border}}/>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:12,fontFamily:'system-ui'}}>
+              <span style={{color:T.textMuted}}>Antal tillfällen</span>
+              <span style={{color:T.accent,fontWeight:700}}>{recurDates.length} st</span>
+            </div>
           </div>
-          {conflictDates.length>0&&<div style={{marginTop:8,background:'#ef444418',borderRadius:8,padding:'8px 10px',fontSize:12,color:'#ef4444'}}>{conflictDates.length} tillfälle(n) har tidskonflikter och skickas som separata förfrågningar.</div>}
+          {conflictDates.length>0&&<div style={{marginTop:8,background:'#ef444418',borderRadius:8,padding:'8px 10px',fontSize:12,color:'#ef4444'}}>{conflictDates.length} tillfälle(n) har tidskonflikter och skickas ändå för admin att granska.</div>}
         </div>}
       </div>
       {error&&<div style={{fontSize:13,color:T.error,background:`${T.error}18`,padding:'10px 14px',borderRadius:8}}>{error}</div>}
@@ -679,13 +795,13 @@ function AdminAddRecurring({onSubmit,onBack,bookings,T}){
   const [selectedDate,setSelectedDate]=useState(null);
   const [selectedStartH,setSelectedStartH]=useState(null);
   const [recurrence,setRecurrence]=useState('weekly');
-  const [recurCount,setRecurCount]=useState(4);
+  const [recurCount,setRecurCount]=useState(NO_END);
   const [step,setStep]=useState('date');
   const [anchor,setAnchor]=useState(today);
   const [error,setError]=useState('');
   const set=f=>v=>setForm(p=>({...p,[f]:v}));
   const monthGrid=useMemo(()=>getMonthGrid(anchor.getFullYear(),anchor.getMonth()),[anchor]);
-  const recurDates=useMemo(()=>!selectedDate?[]:getRecurDates(toISO(selectedDate),recurrence),[selectedDate,recurrence,recurCount]);
+  const recurDates=useMemo(()=>!selectedDate?[]:getRecurDates(toISO(selectedDate),recurrence,recurCount),[selectedDate,recurrence,recurCount]);
   const isPast=(d)=>{if(!d) return false;const x=new Date(d);x.setHours(0,0,0,0);return x<today;};
   const isToday=(d)=>{if(!d) return false;const x=new Date(d);x.setHours(0,0,0,0);return x.getTime()===today.getTime();};
   const handleSubmit=()=>{
@@ -699,7 +815,7 @@ function AdminAddRecurring({onSubmit,onBack,bookings,T}){
     {step==='date'&&<>
       <div style={{fontSize:12,fontWeight:700,color:T.textMuted,marginBottom:10,letterSpacing:'.3px'}}>1. VÄLJ STARTDATUM & INSTÄLLNINGAR</div>
       <div style={{marginBottom:14}}><DurationPicker value={durationHours} onChange={setDurationHours} T={T}/></div>
-      <div style={{marginBottom:14}}><RecurrencePicker recurrence={recurrence} onChange={setRecurrence} T={T}/></div>
+      <div style={{marginBottom:14}}><RecurrencePicker recurrence={recurrence} onChange={r=>{setRecurrence(r);setRecurCount(NO_END);}} recurCount={recurCount} onRecurCountChange={setRecurCount} T={T}/></div>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
         <button onClick={()=>{const d=new Date(anchor);d.setMonth(d.getMonth()-1);setAnchor(d);}} style={{width:32,height:32,borderRadius:8,border:`1px solid ${T.border}`,background:T.card,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:T.text}}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
@@ -733,10 +849,23 @@ function AdminAddRecurring({onSubmit,onBack,bookings,T}){
         <span style={{fontSize:13,color:T.accent,fontWeight:600}}>{isoToDisplay(toISO(selectedDate))} · {slotLabel(selectedStartH,durationHours)} · {durationHours}h</span>
       </div>
       <div style={{background:T.card,border:'1px solid #8b5cf644',borderRadius:12,padding:'12px',marginBottom:16}}>
-        <div style={{fontSize:11,fontWeight:700,color:'#8b5cf6',marginBottom:8,letterSpacing:'.3px'}}>ÅTERKOMMANDE TILLFÄLLEN ({recurDates.length} st)</div>
-        {recurDates.map((iso,i)=><div key={iso} style={{fontSize:12,color:T.text,marginBottom:3,display:'flex',alignItems:'center',gap:6}}>
-          <div style={{width:5,height:5,borderRadius:'50%',background:'#8b5cf6'}}/>{isoToDisplay(iso)} · {slotLabel(selectedStartH,durationHours)}{i===0&&<span style={{fontSize:10,color:T.textMuted}}>(startdatum)</span>}
-        </div>)}
+        <div style={{fontSize:11,fontWeight:700,color:'#8b5cf6',marginBottom:8,letterSpacing:'.3px'}}>ÅTERKOMMANDE TILLFÄLLEN</div>
+        <div style={{display:'flex',flexDirection:'column',gap:6}}>
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:12,fontFamily:'system-ui'}}>
+            <span style={{color:T.textMuted}}>Från</span>
+            <span style={{color:T.text,fontWeight:600}}>{recurDates.length>0?isoToDisplay(recurDates[0]):'-'} · {slotLabel(selectedStartH,durationHours)}</span>
+          </div>
+          <div style={{height:1,background:T.border}}/>
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:12,fontFamily:'system-ui'}}>
+            <span style={{color:T.textMuted}}>Till</span>
+            <span style={{color:T.text,fontWeight:600}}>{recurDates.length>0?isoToDisplay(recurDates[recurDates.length-1]):'-'} · {slotLabel(selectedStartH,durationHours)}</span>
+          </div>
+          <div style={{height:1,background:T.border}}/>
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:12,fontFamily:'system-ui'}}>
+            <span style={{color:T.textMuted}}>Antal tillfällen</span>
+            <span style={{color:'#8b5cf6',fontWeight:700}}>{recurDates.length} st</span>
+          </div>
+        </div>
       </div>
       <div style={{display:'flex',flexDirection:'column',gap:14}}>
         <Input label="NAMN" value={form.name} onChange={set('name')} placeholder="Bokningsnamn / organisation" required T={T}/>
@@ -1025,10 +1154,14 @@ export default function BookingScreen({onBack, activateForDevice, registerAdminD
       created_at:Date.now(),resolved_at:null,device_id:deviceId,
       recurrence:formData.recurrence,recurrence_group_id:groupId,
     }));
-    const {error}=await supabase.from('bookings').insert(rows);
+    // Batcha i grupper om 50 för att hålla sig under Supabase payload-gränsen
+    const BATCH=50;
+    for(let i=0;i<rows.length;i+=BATCH){
+      const {error}=await supabase.from('bookings').insert(rows.slice(i,i+BATCH));
+      if(error){setSubmitLoading(false);showToast('Något gick fel. Försök igen.');return;}
+    }
     setSubmitLoading(false);
-    if(error){showToast('Något gick fel. Försök igen.');return;}
-    activateForDevice?.(); // aktivera notis-polling för denna enhet
+    activateForDevice?.();
     showToast(rows.length>1?`${rows.length} bokningsförfrågningar skickade!`:'Bokningsförfrågan skickad!');
     setView('my-bookings');
   },[showToast, deviceId, activateForDevice]);
@@ -1142,8 +1275,11 @@ export default function BookingScreen({onBack, activateForDevice, registerAdminD
       created_at:Date.now(),resolved_at:Date.now(),device_id:'admin',
       recurrence:formData.recurrence,recurrence_group_id:groupId,
     }));
-    const {error}=await supabase.from('bookings').insert(rows);
-    if(error){showToast('Något gick fel.');return;}
+    const BATCH=50;
+    for(let i=0;i<rows.length;i+=BATCH){
+      const {error}=await supabase.from('bookings').insert(rows.slice(i,i+BATCH));
+      if(error){showToast('Något gick fel.');return;}
+    }
     showToast(`${rows.length} återkommande bokningar tillagda ✓`);
   },[showToast]);
 
