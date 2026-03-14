@@ -382,24 +382,71 @@ function RecurrencePicker({recurrence, onChange, recurCount, onRecurCountChange,
 function TimeSlotPanel({bookings,date,isAdmin,durationHours,onSelectSlot,onClose,T}){
   const iso=toISO(date);
   const availableStarts=getAvailableStarts(bookings,iso,durationHours);
-  const [showOnlyAvailable, setShowOnlyAvailable] = React.useState(false);
-  const slots=useMemo(()=>{
-    const booked=getBookedHours(bookings,iso);
+
+  // Fix 4: auto-visa bara lediga om det finns bokningar på dagen
+  const hasBookingsOnDay = bookings.some(b=>b.date===iso&&b.status!=='rejected'&&b.status!=='cancelled');
+  const [showOnlyAvailable, setShowOnlyAvailable] = React.useState(hasBookingsOnDay);
+
+  // Fix 1: komprimera bokade block — bygg sammansatta block istället för en rad per halvtimme
+  const compactSlots = useMemo(()=>{
+    // Hämta alla aktiva bokningar på dagen
+    const activeBookings = bookings.filter(b=>
+      b.date===iso && b.status!=='rejected' && b.status!=='cancelled'
+    ).map(b=>{
+      const parts=b.time_slot.split('–');
+      const parseH=s=>{const[hh,mm]=s.split(':').map(Number);return hh+(mm===30?0.5:0);};
+      return {
+        startH: parseH(parts[0]),
+        endH: parseH(parts[1]),
+        status: b.status,
+        booking: b,
+      };
+    }).sort((a,b)=>a.startH-b.startH);
+
+    // Slå ihop överlappande/angränsande bokade block
+    const merged=[];
+    for(const b of activeBookings){
+      const last=merged[merged.length-1];
+      if(last&&b.startH<=last.endH){
+        last.endH=Math.max(last.endH,b.endH);
+        if(['pending','edit_pending'].includes(b.status)&&last.status==='booked') last.status='pending';
+      } else {
+        merged.push({...b});
+      }
+    }
+
+    // Bygg lista: lediga gaps + bokade block
     const result=[];
-    for(let startH=OPEN_HOUR;startH<=CLOSE_HOUR-durationHours;startH+=0.5){
-      const blocks=durationHours*2;
-      let blockFree=true; for(let j=0;j<blocks;j++){if(booked.has(startH*2+j)){blockFree=false;break;}}
-      const conflictBooking=bookings.find(b=>{
-        if(b.date!==iso||b.status==='rejected'||b.status==='cancelled') return false;
-        const bStart=parseSlotStart(b.time_slot);
-        const bDur=b.duration_hours||1;
-        return startH<bStart+bDur&&startH+durationHours>bStart;
+    let cursor=OPEN_HOUR;
+    for(const block of merged){
+      if(block.startH>cursor){
+        // Ledigt gap
+        for(let h=cursor;h<=block.startH-durationHours;h+=0.5){
+          if(!isHourPast(iso,h,durationHours))
+            result.push({type:'available',startH:h,label:slotLabel(h,durationHours)});
+        }
+      }
+      result.push({
+        type:'booked',
+        startH:block.startH,
+        endH:block.endH,
+        label:`${fmtHour(block.startH)}–${fmtHour(block.endH)}`,
+        status:block.status,
+        booking:block.booking,
       });
-      const status=blockFree?'available':conflictBooking?.status==='pending'?'pending':'booked';
-      result.push({startH,label:slotLabel(startH,durationHours),status,conflictBooking});
+      cursor=block.endH;
+    }
+    // Lediga tider efter sista bokning
+    for(let h=cursor;h<=CLOSE_HOUR-durationHours;h+=0.5){
+      if(!isHourPast(iso,h,durationHours))
+        result.push({type:'available',startH:h,label:slotLabel(h,durationHours)});
     }
     return result;
   },[bookings,iso,durationHours]);
+
+  const visibleSlots = showOnlyAvailable
+    ? compactSlots.filter(s=>s.type==='available')
+    : compactSlots;
 
   return <div style={{marginTop:16,background:T.card,border:`1px solid ${T.border}`,borderRadius:16,overflow:'hidden'}}>
     <div style={{padding:'14px 16px 10px',borderBottom:`1px solid ${T.border}`,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
@@ -416,36 +463,37 @@ function TimeSlotPanel({bookings,date,isAdmin,durationHours,onSelectSlot,onClose
         </button>
       </div>
     </div>
-    {availableStarts.length===0&&!showOnlyAvailable&&<div style={{padding:'20px 16px',textAlign:'center',color:T.textMuted,fontSize:13,fontFamily:'system-ui'}}>
-      {slots.every(s=>isHourPast(iso,s.startH,durationHours))
-        ? 'Alla bokningsbara tider har passerat för idag.'
-        : `Inga lediga tider för ${fmtDuration(durationHours)} detta datum.`}
+    {visibleSlots.length===0&&<div style={{padding:'20px 16px',textAlign:'center',color:T.textMuted,fontSize:13,fontFamily:'system-ui'}}>
+      {availableStarts.length===0?`Inga lediga tider för ${fmtDuration(durationHours)} detta datum.`:'Inga fler lediga tider.'}
     </div>}
-    <div style={{padding:'8px 10px 10px',display:'flex',flexDirection:'column',gap:6}}>
-      {slots
-        .filter(s=>!showOnlyAvailable||(s.status==='available'&&!isHourPast(iso,s.startH,durationHours)))
-        .map(({startH,label,status,conflictBooking})=>{
-        const past=isHourPast(iso,startH,durationHours);
-        const color=past?'#888':slotColor(status);
-        const canBook=!past&&status==='available';
-        return <div key={startH} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',background:T.cardElevated,borderRadius:10,border:`1px solid ${canBook?`${color}44`:T.border}`,opacity:past?0.35:(!canBook&&!isAdmin?0.55:1)}}>
-          <div style={{display:'flex',alignItems:'center',gap:10}}>
-            <div style={{width:8,height:8,borderRadius:'50%',background:color,flexShrink:0}}/>
-            <span style={{fontSize:14,fontWeight:600,color:past?T.textMuted:T.text,fontFamily:'system-ui'}}>{label}</span>
-            {past&&<span style={{fontSize:10,color:T.textMuted,fontFamily:'system-ui'}}>Passerad</span>}
-            {!past&&isAdmin&&conflictBooking&&<span style={{fontSize:11,color:T.textMuted,fontFamily:'system-ui'}}>· {conflictBooking.name}</span>}
-          </div>
+    <div style={{padding:'8px 10px 10px',display:'flex',flexDirection:'column',gap:5}}>
+      {visibleSlots.map((slot,idx)=>{
+        if(slot.type==='available'){
+          return <div key={`a-${slot.startH}`} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'9px 12px',background:T.cardElevated,borderRadius:10,border:`1px solid ${'#22c55e44'}`}}>
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <div style={{width:8,height:8,borderRadius:'50%',background:'#22c55e',flexShrink:0}}/>
+              <span style={{fontSize:14,fontWeight:600,color:T.text,fontFamily:'system-ui'}}>{slot.label}</span>
+            </div>
+            <button onClick={()=>onSelectSlot(date,slot.label,slot.startH,durationHours)} style={{background:T.accent,color:'#fff',border:'none',borderRadius:8,padding:'5px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'system-ui',WebkitTapHighlightColor:'transparent'}}>Välj</button>
+          </div>;
+        }
+        // Bokad rad
+        const color=slot.status==='pending'?'#f59e0b':'#ef4444';
+        return <div key={`b-${slot.startH}`} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'9px 12px',background:`${color}0d`,borderRadius:10,border:`1px solid ${color}33`,opacity:isAdmin?1:0.7}}>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
-            {!past&&status!=='available'&&<Badge status={status}/>}
-            {canBook&&<button onClick={()=>onSelectSlot(date,label,startH,durationHours)} style={{background:T.accent,color:'#fff',border:'none',borderRadius:8,padding:'5px 12px',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'system-ui',WebkitTapHighlightColor:'transparent'}}>Välj</button>}
-            {!past&&isAdmin&&conflictBooking&&<button onClick={()=>onSelectSlot(date,label,startH,durationHours,conflictBooking)} style={{background:`${T.accent}22`,color:T.accent,border:'none',borderRadius:8,padding:'5px 10px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'system-ui'}}>Detaljer</button>}
+            <div style={{width:8,height:8,borderRadius:'50%',background:color,flexShrink:0}}/>
+            <span style={{fontSize:14,fontWeight:600,color:T.text,fontFamily:'system-ui'}}>{slot.label}</span>
+            {isAdmin&&slot.booking&&<span style={{fontSize:11,color:T.textMuted,fontFamily:'system-ui'}}>· {slot.booking.name}</span>}
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:6}}>
+            <Badge status={slot.status}/>
+            {isAdmin&&slot.booking&&<button onClick={()=>onSelectSlot(date,slot.label,slot.startH,durationHours,slot.booking)} style={{background:`${T.accent}22`,color:T.accent,border:'none',borderRadius:8,padding:'5px 10px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:'system-ui'}}>Detaljer</button>}
           </div>
         </div>;
       })}
     </div>
   </div>;
 }
-
 /* ── CalendarView ── */
 function CalendarView({bookings,onSelectSlot,isAdmin,T}){
   const today=new Date(); today.setHours(0,0,0,0);
@@ -1034,20 +1082,41 @@ function AdminEditForm({booking, bookings, onSubmit, onBack, loading, T}){
 }
 
 /* ── AdminPanel ── */
-function AdminPanel({bookings,onAction,onEdit,onDelete,onDeleteMany,onAddRecurring,onBack,onLogout,actionLoading,onTabBarHide,onTabBarShow,T}){
-  const [filter,setFilter]=useState('all');
-  const [selected,setSelected]=useState(null);       // { group_id, bookings[], isRecur }
-  const [selectedOccurrence,setSelectedOccurrence]=useState(null); // enstaka tillfälle (booking-objekt)
+function AdminPanel({bookings,onAction,onEdit,onDelete,onDeleteMany,onAddRecurring,onBack,onLogout,actionLoading,onTabBarHide,onTabBarShow,preselect,onClearPreselect,T}){
+  const hasPending = bookings.some(b=>b.status==='pending'||b.status==='edit_pending');
+  // Fix 6: default filter = 'pending' om det finns väntande, annars 'all'
+  const [filter,setFilter]=useState(()=>hasPending?'pending':'all');
+  const [selected,setSelected]=useState(null);
+  const [selectedOccurrence,setSelectedOccurrence]=useState(null);
   const [comment,setComment]=useState('');
   const [commentError,setCommentError]=useState('');
   const [showAddRecur,setShowAddRecur]=useState(false);
   const [showEditForm,setShowEditForm]=useState(false);
-  // deleteMode: null | 'all' | 'one' | 'one_and_future'
   const [deleteMode,setDeleteMode]=useState(null);
   const [deleteExplanation,setDeleteExplanation]=useState('');
   const [deleteExplanationError,setDeleteExplanationError]=useState('');
 
+  // Fix 5+6: öppna rätt bokning direkt från kalender-detaljer-knapp
+  useEffect(()=>{
+    if(!preselect||!bookings.length) return;
+    const grpBookings = bookings.filter(b=>(b.recurrence_group_id||b.id)===preselect);
+    if(!grpBookings.length) return;
+    const isRecur = grpBookings.length>1;
+    const first = grpBookings[0];
+    setSelected({group_id:preselect, bookings:grpBookings, isRecur, name:first.name, activity:first.activity});
+    setFilter('all');
+    onClearPreselect?.();
+  },[preselect, bookings]); // eslint-disable-line
+
   // Gruppera bokningar — en rad per bokning/grupp
+  // Fix 2: synka selected med live bookings-data (uppdaterar direkt när tillfällen raderas)
+  useEffect(()=>{
+    if(!selected) return;
+    const live = bookings.filter(b=>(b.recurrence_group_id||b.id)===selected.group_id);
+    if(live.length===0){ setSelected(null); return; }
+    setSelected(prev=>prev?({...prev, bookings:live}):null);
+  },[bookings]); // eslint-disable-line
+
   const groups = useMemo(()=>{
     const statusFilter = (b) => {
       if(filter==='all') return true;
@@ -1117,81 +1186,61 @@ function AdminPanel({bookings,onAction,onEdit,onDelete,onDeleteMany,onAddRecurri
   if(showEditForm&&selected) return <AdminEditForm booking={selected.bookings[0]} bookings={bookings} onSubmit={(data)=>{onEdit(data);setShowEditForm(false);setSelected(null);}} onBack={()=>setShowEditForm(false)} loading={actionLoading} T={T}/>;
 
   /* ── Delete-bekräftelsedialog (sheet) ── */
-  const DeleteSheet = () => {
-    if(!deleteMode) return null;
-    const isAll = deleteMode==='all';
-    const isFuture = deleteMode==='one_and_future';
-    const cutoff = selectedOccurrence?.date;
-    const futureCount = isFuture && selected
-      ? selected.bookings.filter(b=>b.date>=cutoff&&b.status!=='cancelled').length
-      : 0;
-    const title = isAll
-      ? 'Ta bort alla tillfällen'
-      : isFuture
-        ? `Ta bort detta + ${futureCount-1} kommande`
-        : 'Ta bort detta tillfälle';
-    const msg = isAll
-      ? `Alla ${selected.bookings.length} tillfällen i serien tas bort permanent.`
-      : isFuture
-        ? `${isoToDisplay(cutoff)} och ${futureCount-1} kommande tillfällen tas bort. Tidigare tillfällen påverkas inte.`
-        : `Tillfället ${isoToDisplay(selectedOccurrence?.date)} · ${selectedOccurrence?.time_slot} tas bort. Övriga tillfällen påverkas inte.`;
-    return (
-      <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:1000,display:'flex',alignItems:'flex-end',justifyContent:'center'}} onClick={closeDelete}>
-        <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:'20px 20px 0 0',padding:'24px 20px 36px',width:'100%',maxWidth:500,boxSizing:'border-box',animation:'slideUp .25s cubic-bezier(0.32,0.72,0,1)'}}>
-          <div style={{fontSize:18,fontWeight:800,color:T.text,marginBottom:6,fontFamily:'system-ui'}}>{title}</div>
-          <div style={{fontSize:13,color:T.textMuted,marginBottom:16,fontFamily:'system-ui',lineHeight:1.5}}>{msg}</div>
-          <div style={{marginBottom:14}}>
-            <label style={{fontSize:12,fontWeight:600,color:T.textMuted,fontFamily:'system-ui',letterSpacing:'.3px',display:'block',marginBottom:5}}>FÖRKLARING TILL BESÖKAREN *</label>
-            <textarea value={deleteExplanation} onChange={e=>setDeleteExplanation(e.target.value)} placeholder="Förklara varför bokningen tas bort..." rows={3}
-              style={{background:T.cardElevated,border:`1px solid ${deleteExplanationError?T.error:T.border}`,borderRadius:10,padding:'11px 14px',fontSize:15,color:T.text,fontFamily:'system-ui',outline:'none',width:'100%',boxSizing:'border-box',resize:'vertical'}}/>
-            {deleteExplanationError&&<div style={{fontSize:12,color:T.error,marginTop:4}}>{deleteExplanationError}</div>}
-          </div>
-          <div style={{display:'flex',gap:10}}>
-            <button onClick={closeDelete} style={{flex:1,padding:'13px',borderRadius:12,border:`1px solid ${T.border}`,background:'none',color:T.text,fontSize:15,fontWeight:600,cursor:'pointer',fontFamily:'system-ui'}}>Avbryt</button>
-            <button onClick={confirmDelete} disabled={actionLoading} style={{flex:1,padding:'13px',borderRadius:12,border:'none',background:'#ef4444',color:'#fff',fontSize:15,fontWeight:700,cursor:actionLoading?'default':'pointer',fontFamily:'system-ui'}}>
-              {actionLoading?'Tar bort...':'Ta bort'}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
+  /* ── Beräkna sheet-innehåll ── */
+  const deleteSheetContent = deleteMode ? (()=>{
+    const isAll=deleteMode==='all';
+    const isFuture=deleteMode==='one_and_future';
+    const cutoff=selectedOccurrence?.date;
+    const futureCount=isFuture&&selected?selected.bookings.filter(b=>b.date>=cutoff&&b.status!=='cancelled').length:0;
+    const title=isAll?'Ta bort alla tillfällen':isFuture?`Ta bort detta + ${futureCount-1} kommande`:'Ta bort detta tillfälle';
+    const msg=isAll?`Alla ${selected?.bookings.length} tillfällen i serien tas bort permanent.`:isFuture?`${isoToDisplay(cutoff)} och ${futureCount-1} kommande tillfällen tas bort. Tidigare påverkas inte.`:`Tillfället ${isoToDisplay(selectedOccurrence?.date)} · ${selectedOccurrence?.time_slot} tas bort. Övriga påverkas inte.`;
+    return {title,msg};
+  })() : null;
 
-  /* ── Enstaka tillfälle — välj avbokningsomfång ── */
-  const OccurrenceSheet = () => {
-    if(!selectedOccurrence||deleteMode) return null;
-    const b = selectedOccurrence;
-    const sortedAll = selected?.bookings.slice().sort((a,x)=>a.date.localeCompare(x.date))||[];
-    const futureCount = sortedAll.filter(x=>x.date>=b.date&&x.status!=='cancelled').length;
-    return (
-      <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:1000,display:'flex',alignItems:'flex-end',justifyContent:'center'}} onClick={()=>setSelectedOccurrence(null)}>
-        <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:'20px 20px 0 0',padding:'24px 20px 36px',width:'100%',maxWidth:500,boxSizing:'border-box',animation:'slideUp .25s cubic-bezier(0.32,0.72,0,1)'}}>
-          <div style={{fontSize:16,fontWeight:800,color:T.text,marginBottom:4,fontFamily:'system-ui'}}>
-            {isoToDisplay(b.date)} · {b.time_slot}
-          </div>
-          <div style={{marginBottom:20}}><Badge status={b.status}/></div>
-          <div style={{display:'flex',flexDirection:'column',gap:10}}>
-            <button onClick={()=>{onTabBarHide?.();setDeleteMode('one');}} style={{padding:'14px',borderRadius:12,border:'1px solid #ef444433',background:'#ef444411',color:'#ef4444',fontSize:14,fontWeight:700,cursor:'pointer',fontFamily:'system-ui',textAlign:'left',WebkitTapHighlightColor:'transparent'}}>
-              🗑 Avboka bara detta tillfälle
-              <div style={{fontSize:12,fontWeight:400,marginTop:3,opacity:.75}}>Övriga tillfällen i serien påverkas inte</div>
-            </button>
-            {futureCount>1&&<button onClick={()=>{onTabBarHide?.();setDeleteMode('one_and_future');}} style={{padding:'14px',borderRadius:12,border:'1px solid #ef444433',background:'#ef444411',color:'#ef4444',fontSize:14,fontWeight:700,cursor:'pointer',fontFamily:'system-ui',textAlign:'left',WebkitTapHighlightColor:'transparent'}}>
-              🗑 Avboka detta + alla {futureCount-1} kommande
-              <div style={{fontSize:12,fontWeight:400,marginTop:3,opacity:.75}}>Fr.o.m. {isoToDisplay(b.date)} — tidigare påverkas inte</div>
-            </button>}
-            <button onClick={()=>setSelectedOccurrence(null)} style={{padding:'13px',borderRadius:12,border:`1px solid ${T.border}`,background:'none',color:T.text,fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'system-ui',WebkitTapHighlightColor:'transparent'}}>
-              Avbryt
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
+  const occurrenceSheetData = (selectedOccurrence&&!deleteMode) ? (()=>{
+    const b=selectedOccurrence;
+    const sortedAll=selected?.bookings.slice().sort((a,x)=>a.date.localeCompare(x.date))||[];
+    const futureCount=sortedAll.filter(x=>x.date>=b.date&&x.status!=='cancelled').length;
+    return {b,futureCount};
+  })() : null;
 
-  // Detaljvy för vald grupp
   if(selected) return <div style={{padding:'20px 16px',fontFamily:'system-ui'}}>
-    <DeleteSheet/>
-    <OccurrenceSheet/>
+    {/* Fix 3: inline sheets — inga inner components som återskapar DOM och tappar fokus */}
+    {deleteSheetContent&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:1000,display:'flex',alignItems:'flex-end',justifyContent:'center'}} onClick={closeDelete}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:'20px 20px 0 0',padding:'24px 20px 36px',width:'100%',maxWidth:500,boxSizing:'border-box',animation:'slideUp .25s cubic-bezier(0.32,0.72,0,1)'}}>
+        <div style={{fontSize:18,fontWeight:800,color:T.text,marginBottom:6,fontFamily:'system-ui'}}>{deleteSheetContent.title}</div>
+        <div style={{fontSize:13,color:T.textMuted,marginBottom:16,fontFamily:'system-ui',lineHeight:1.5}}>{deleteSheetContent.msg}</div>
+        <div style={{marginBottom:14}}>
+          <label style={{fontSize:12,fontWeight:600,color:T.textMuted,fontFamily:'system-ui',letterSpacing:'.3px',display:'block',marginBottom:5}}>FÖRKLARING TILL BESÖKAREN *</label>
+          <textarea value={deleteExplanation} onChange={e=>setDeleteExplanation(e.target.value)} placeholder="Förklara varför bokningen tas bort..." rows={3}
+            style={{background:T.cardElevated,border:`1px solid ${deleteExplanationError?T.error:T.border}`,borderRadius:10,padding:'11px 14px',fontSize:15,color:T.text,fontFamily:'system-ui',outline:'none',width:'100%',boxSizing:'border-box',resize:'vertical'}}/>
+          {deleteExplanationError&&<div style={{fontSize:12,color:T.error,marginTop:4}}>{deleteExplanationError}</div>}
+        </div>
+        <div style={{display:'flex',gap:10}}>
+          <button onClick={closeDelete} style={{flex:1,padding:'13px',borderRadius:12,border:`1px solid ${T.border}`,background:'none',color:T.text,fontSize:15,fontWeight:600,cursor:'pointer',fontFamily:'system-ui'}}>Avbryt</button>
+          <button onClick={confirmDelete} disabled={actionLoading} style={{flex:1,padding:'13px',borderRadius:12,border:'none',background:'#ef4444',color:'#fff',fontSize:15,fontWeight:700,cursor:actionLoading?'default':'pointer',fontFamily:'system-ui'}}>
+            {actionLoading?'Tar bort...':'Ta bort'}
+          </button>
+        </div>
+      </div>
+    </div>}
+    {occurrenceSheetData&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:1000,display:'flex',alignItems:'flex-end',justifyContent:'center'}} onClick={()=>setSelectedOccurrence(null)}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:'20px 20px 0 0',padding:'24px 20px 36px',width:'100%',maxWidth:500,boxSizing:'border-box',animation:'slideUp .25s cubic-bezier(0.32,0.72,0,1)'}}>
+        <div style={{fontSize:16,fontWeight:800,color:T.text,marginBottom:4,fontFamily:'system-ui'}}>{isoToDisplay(occurrenceSheetData.b.date)} · {occurrenceSheetData.b.time_slot}</div>
+        <div style={{marginBottom:20}}><Badge status={occurrenceSheetData.b.status}/></div>
+        <div style={{display:'flex',flexDirection:'column',gap:10}}>
+          <button onClick={()=>{onTabBarHide?.();setDeleteMode('one');}} style={{padding:'14px',borderRadius:12,border:'1px solid #ef444433',background:'#ef444411',color:'#ef4444',fontSize:14,fontWeight:700,cursor:'pointer',fontFamily:'system-ui',textAlign:'left',WebkitTapHighlightColor:'transparent'}}>
+            🗑 Avboka bara detta tillfälle
+            <div style={{fontSize:12,fontWeight:400,marginTop:3,opacity:.75}}>Övriga tillfällen i serien påverkas inte</div>
+          </button>
+          {occurrenceSheetData.futureCount>1&&<button onClick={()=>{onTabBarHide?.();setDeleteMode('one_and_future');}} style={{padding:'14px',borderRadius:12,border:'1px solid #ef444433',background:'#ef444411',color:'#ef4444',fontSize:14,fontWeight:700,cursor:'pointer',fontFamily:'system-ui',textAlign:'left',WebkitTapHighlightColor:'transparent'}}>
+            🗑 Avboka detta + alla {occurrenceSheetData.futureCount-1} kommande
+            <div style={{fontSize:12,fontWeight:400,marginTop:3,opacity:.75}}>Fr.o.m. {isoToDisplay(occurrenceSheetData.b.date)} — tidigare påverkas inte</div>
+          </button>}
+          <button onClick={()=>setSelectedOccurrence(null)} style={{padding:'13px',borderRadius:12,border:`1px solid ${T.border}`,background:'none',color:T.text,fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'system-ui',WebkitTapHighlightColor:'transparent'}}>Avbryt</button>
+        </div>
+      </div>
+    </div>}
     <BackButton onBack={()=>{setSelected(null);setComment('');setCommentError('');setSelectedOccurrence(null);closeDelete();}} T={T}/>
     <div style={{fontSize:20,fontWeight:800,color:T.text,marginTop:16,marginBottom:4}}>Bokningsdetaljer</div>
 
@@ -1359,6 +1408,7 @@ export default function BookingScreen({onBack, activateForDevice, registerAdminD
   const [actionLoading,setActionLoading]=useState(false);
   const [adminMode,setAdminModeState]=useState(()=>localStorage.getItem(STORAGE_ADMIN)==='true');
   const [view,setView]=useState(()=>startAtAdminLogin?'admin-login':'calendar');
+  const [adminPreselect,setAdminPreselect]=useState(null); // group_id att öppna direkt
   const [pendingSlot,setPendingSlot]=useState(null);
   const [viewConfirmation,setViewConfirmation]=useState(null);
   const [editingBooking,setEditingBooking]=useState(null);
@@ -1576,7 +1626,12 @@ export default function BookingScreen({onBack, activateForDevice, registerAdminD
   },[showToast, registerAdminDevice]);
   const handleAdminLogout=useCallback(()=>{localStorage.setItem(STORAGE_ADMIN,'false');setAdminModeState(false);setView('calendar');showToast('Utloggad');},[showToast]);
   const handleSelectSlot=useCallback((date,slotLbl,startH,durationHours,existingBooking)=>{
-    if(adminMode&&existingBooking){setView('admin');return;}
+    if(adminMode&&existingBooking){
+      // Navigera till admin med rätt bokning förmarkerad
+      setAdminPreselect(existingBooking.recurrence_group_id||existingBooking.id);
+      setView('admin');
+      return;
+    }
     setPendingSlot({date,slotLabel:slotLbl,startH,durationHours});setView('form');
   },[adminMode]);
 
@@ -1633,7 +1688,7 @@ export default function BookingScreen({onBack, activateForDevice, registerAdminD
 
   if(view==='admin-login') return <div style={{background:T.bg,minHeight:'100%'}}><AdminLogin onSuccess={handleAdminLogin} onBack={()=>setView('calendar')} T={T}/></div>;
   if(view==='admin') return <div style={{background:T.bg,minHeight:'100%'}}>
-    <AdminPanel bookings={bookings} onAction={handleAdminAction} onEdit={handleAdminEdit} onDelete={handleAdminDelete} onDeleteMany={handleAdminDeleteMany} onAddRecurring={handleAdminAddRecurring} onBack={()=>setView('calendar')} onLogout={handleAdminLogout} actionLoading={actionLoading} onTabBarHide={onTabBarHide} onTabBarShow={onTabBarShow} T={T}/>
+    <AdminPanel bookings={bookings} onAction={handleAdminAction} onEdit={handleAdminEdit} onDelete={handleAdminDelete} onDeleteMany={handleAdminDeleteMany} onAddRecurring={handleAdminAddRecurring} onBack={()=>setView('calendar')} onLogout={handleAdminLogout} actionLoading={actionLoading} onTabBarHide={onTabBarHide} onTabBarShow={onTabBarShow} preselect={adminPreselect} onClearPreselect={()=>setAdminPreselect(null)} T={T}/>
     <Toast message={toast} T={T}/>
   </div>;
 
