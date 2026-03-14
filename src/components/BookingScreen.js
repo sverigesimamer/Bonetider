@@ -14,9 +14,14 @@ import { supabase } from '../services/supabaseClient';
 
 const ADMIN_PIN      = 'Andalus2026';
 const STORAGE_ADMIN  = 'islamnu_admin_mode';
-const STORAGE_DEVICE = 'islamnu_device_id';
-const STORAGE_EMAIL  = 'islamnu_user_email';
-const STORAGE_PHONE  = 'islamnu_user_phone';
+const STORAGE_DEVICE    = 'islamnu_device_id';
+const STORAGE_EMAIL     = 'islamnu_user_email';
+const STORAGE_PHONE     = 'islamnu_user_phone';
+const STORAGE_PIN       = 'islamnu_user_pin';       // klartext PIN (för att visa användaren)
+const STORAGE_PIN_HASH  = 'islamnu_user_pin_hash';  // hash (för snabb lokal jämförelse)
+const RATE_LIMIT_KEY    = 'islamnu_recover_attempts';
+const MAX_ATTEMPTS      = 5;
+const LOCKOUT_MS        = 15 * 60 * 1000; // 15 min
 
 const OPEN_HOUR  = 8;
 const CLOSE_HOUR = 24;
@@ -47,6 +52,41 @@ function normalizePhone(p){
   if(s.startsWith('+46')) s='0'+s.slice(3);
   return s;
 }
+// Genererar en slumpmässig 4-siffrig PIN som sträng med ledande nolla om nödvändigt
+function generatePin(){
+  return String(Math.floor(1000+Math.random()*9000)); // 1000–9999, alltid 4 siffror
+}
+// SHA-256 via inbyggt Web Crypto API — ingen extern dependency
+async function sha256(text){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+// Rate limiting: returnerar { blocked: bool, remaining: number, unlockAt: number|null }
+function checkRateLimit(){
+  try{
+    const raw = localStorage.getItem(RATE_LIMIT_KEY);
+    if(!raw) return {blocked:false,remaining:MAX_ATTEMPTS,unlockAt:null};
+    const {attempts,lockedAt} = JSON.parse(raw);
+    if(lockedAt){
+      const unlockAt = lockedAt + LOCKOUT_MS;
+      if(Date.now() < unlockAt) return {blocked:true,remaining:0,unlockAt};
+      // Låsning har gått ut — återställ
+      localStorage.removeItem(RATE_LIMIT_KEY);
+      return {blocked:false,remaining:MAX_ATTEMPTS,unlockAt:null};
+    }
+    return {blocked:false,remaining:MAX_ATTEMPTS-attempts,unlockAt:null};
+  }catch{ return {blocked:false,remaining:MAX_ATTEMPTS,unlockAt:null}; }
+}
+function recordFailedAttempt(){
+  try{
+    const raw = localStorage.getItem(RATE_LIMIT_KEY);
+    const prev = raw ? JSON.parse(raw) : {attempts:0,lockedAt:null};
+    const attempts = (prev.attempts||0)+1;
+    const lockedAt = attempts>=MAX_ATTEMPTS ? Date.now() : null;
+    localStorage.setItem(RATE_LIMIT_KEY, JSON.stringify({attempts,lockedAt}));
+  }catch{}
+}
+function clearRateLimit(){ localStorage.removeItem(RATE_LIMIT_KEY); }
 function fmtHour(h){ return h===24?'00:00':`${String(Math.floor(h)).padStart(2,'0')}:${h%1===0?'00':'30'}`; }
 function slotLabel(startHour,dur){ return `${fmtHour(startHour)}–${fmtHour(startHour+dur)}`; }
 
@@ -708,6 +748,61 @@ function EditBookingForm({booking, bookings, onSubmit, onBack, loading, T}){
 }
 
 /* ── ConfirmationScreen ── */
+/* ── PinRevealScreen — visas en gång efter första bokningen ── */
+function PinRevealScreen({pin, onContinue, T}){
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard?.writeText(pin).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);}).catch(()=>{});
+  };
+  return <div style={{padding:'24px 20px',fontFamily:'system-ui',display:'flex',flexDirection:'column',alignItems:'center',minHeight:'100%',background:T.bg}}>
+    <div style={{width:'100%',maxWidth:360,display:'flex',flexDirection:'column',alignItems:'center',gap:20,paddingTop:40}}>
+      {/* Ikon */}
+      <div style={{width:72,height:72,borderRadius:'50%',background:`${T.accent}22`,display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          <circle cx="12" cy="16" r="1" fill={T.accent}/>
+        </svg>
+      </div>
+      <div style={{textAlign:'center'}}>
+        <div style={{fontSize:22,fontWeight:800,color:T.text,marginBottom:8}}>Din personliga bokningskod</div>
+        <div style={{fontSize:14,color:T.textMuted,lineHeight:1.65,maxWidth:300}}>
+          Spara den här koden. Du behöver den om du vill se dina bokningar från en ny enhet eller efter rensad cache.
+        </div>
+      </div>
+
+      {/* PIN-display */}
+      <div style={{background:T.card,border:`2px solid ${T.accent}55`,borderRadius:20,padding:'28px 36px',textAlign:'center',width:'100%',boxSizing:'border-box'}}>
+        <div style={{fontSize:11,fontWeight:700,color:T.textMuted,letterSpacing:'1px',marginBottom:16}}>BOKNINGSKOD</div>
+        <div style={{display:'flex',justifyContent:'center',gap:12,marginBottom:20}}>
+          {pin.split('').map((d,i)=>(
+            <div key={i} style={{width:52,height:64,borderRadius:12,background:T.bg,border:`1.5px solid ${T.accent}44`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:32,fontWeight:800,color:T.accent,fontFamily:'system-ui',letterSpacing:0}}>
+              {d}
+            </div>
+          ))}
+        </div>
+        <button onClick={handleCopy} style={{background:'none',border:`1px solid ${T.border}`,borderRadius:8,padding:'6px 16px',fontSize:12,color:copied?'#22c55e':T.textMuted,cursor:'pointer',fontFamily:'system-ui',fontWeight:600,display:'flex',alignItems:'center',gap:6,margin:'0 auto',WebkitTapHighlightColor:'transparent'}}>
+          {copied
+            ?<><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Kopierad!</>
+            :<><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Kopiera kod</>
+          }
+        </button>
+      </div>
+
+      {/* Påminnelse */}
+      <div style={{background:'#f59e0b18',border:'1px solid #f59e0b44',borderRadius:12,padding:'12px 16px',width:'100%',boxSizing:'border-box'}}>
+        <div style={{fontSize:12,color:'#f59e0b',fontWeight:700,marginBottom:4}}>⚠️ Viktigt</div>
+        <div style={{fontSize:12,color:'#f59e0b',lineHeight:1.6}}>
+          Kod + telefonnummer = tillgång till dina bokningar. Dela inte koden med någon.
+        </div>
+      </div>
+
+      <button onClick={onContinue} style={{width:'100%',padding:'15px',borderRadius:14,border:'none',background:T.accent,color:'#fff',fontSize:16,fontWeight:700,cursor:'pointer',fontFamily:'system-ui',WebkitTapHighlightColor:'transparent',marginTop:4}}>
+        Jag har sparat koden →
+      </button>
+    </div>
+  </div>;
+}
+
 function ConfirmationScreen({booking,onBack,T}){
   return <div style={{padding:'20px 16px',fontFamily:'system-ui'}}>
     <BackButton onBack={onBack} T={T}/>
@@ -745,12 +840,13 @@ function ConfirmationScreen({booking,onBack,T}){
 function MyBookings({bookings, onViewConfirmation, onEdit, onCancel, onCancelOne, onCancelFromDate, onRecover, onBack, T}){
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [occurrenceSheet, setOccurrenceSheet] = useState(null);
-  // Återhämtning
+  // Återhämtning via telefon + PIN
   const [showRecover, setShowRecover] = useState(false);
-  const [recoverEmail, setRecoverEmail] = useState(()=>localStorage.getItem('islamnu_user_email')||'');
   const [recoverPhone, setRecoverPhone] = useState(()=>localStorage.getItem('islamnu_user_phone')||'');
-  const [recoverState, setRecoverState] = useState('idle'); // idle | loading | success | notfound | mismatch | error
+  const [recoverPin, setRecoverPin] = useState('');
+  const [recoverState, setRecoverState] = useState('idle'); // idle|loading|success|notfound|wrong_pin|locked|error
   const [recoverCount, setRecoverCount] = useState(0);
+  const [lockoutUntil, setLockoutUntil] = useState(null);
 
   const sorted=bookings.slice().sort((a,b)=>b.created_at-a.created_at);
   const groups=useMemo(()=>{
@@ -891,30 +987,48 @@ function MyBookings({bookings, onViewConfirmation, onEdit, onCancel, onCancelOne
   }
 
   const handleRecover = async () => {
-    if(!recoverEmail.trim()||!recoverPhone.trim()) return;
+    if(!recoverPhone.trim()||recoverPin.length!==4) return;
+    // Rate limiting
+    const rl = checkRateLimit();
+    if(rl.blocked){
+      setLockoutUntil(rl.unlockAt);
+      setRecoverState('locked');
+      return;
+    }
     setRecoverState('loading');
     try{
-      const n = await onRecover(recoverEmail, recoverPhone);
-      if(n===0){ setRecoverState('mismatch'); }
-      else{ setRecoverCount(n); setRecoverState('success'); setShowRecover(false); }
-    }catch(e){
-      setRecoverState(e?.message==='fetch_error'?'notfound':'error');
+      const n = await onRecover(recoverPhone, recoverPin);
+      if(n===0){
+        recordFailedAttempt();
+        const rl2 = checkRateLimit();
+        if(rl2.blocked){ setLockoutUntil(rl2.unlockAt); setRecoverState('locked'); }
+        else setRecoverState('wrong_pin');
+      } else {
+        clearRateLimit();
+        setRecoverCount(n);
+        setRecoverState('success');
+        setShowRecover(false);
+      }
+    }catch{
+      setRecoverState('error');
     }
   };
+
+  const lockoutMinutes = lockoutUntil ? Math.ceil((lockoutUntil-Date.now())/60000) : 0;
 
   // ── Listvy — 1 rad per grupp ──
   return <div style={{padding:'20px 16px',fontFamily:'system-ui'}}>
     <BackButton onBack={onBack} T={T}/>
     <div style={{fontSize:22,fontWeight:800,color:T.text,letterSpacing:'-.4px',marginTop:16,marginBottom:20}}>Mina bokningar</div>
     {recoverCount>0&&<div style={{background:'#22c55e18',border:'1px solid #22c55e33',borderRadius:12,padding:'12px 14px',marginBottom:14,fontSize:13,color:'#22c55e',fontWeight:600}}>
-      ✓ {recoverCount} bokning{recoverCount>1?'ar':''} återhämtad{recoverCount>1?'e':''} !
+      ✓ {recoverCount} bokning{recoverCount>1?'ar':''} återhämtad{recoverCount>1?'e':''}!
     </div>}
     {groups.length===0
       ?<div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:14,paddingTop:32}}>
         <div style={{fontSize:40,marginBottom:4}}>📋</div>
         <div style={{fontSize:16,fontWeight:700,color:T.text}}>Inga bokningar hittades</div>
         <div style={{fontSize:13,color:T.textMuted,textAlign:'center',lineHeight:1.6,maxWidth:280}}>
-          Om du har bokningar sedan tidigare kan de ha kopplats bort vid rensning av webbläsarcache.
+          Om du har bokningar sedan tidigare kan de ha kopplats bort. Ange telefon och bokningskod för att hämta dem.
         </div>
         {!showRecover
           ?<button onClick={()=>setShowRecover(true)} style={{marginTop:4,padding:'12px 24px',borderRadius:12,border:`1px solid ${T.accent}44`,background:`${T.accent}18`,color:T.accent,fontSize:14,fontWeight:700,cursor:'pointer',fontFamily:'system-ui',WebkitTapHighlightColor:'transparent'}}>
@@ -922,27 +1036,39 @@ function MyBookings({bookings, onViewConfirmation, onEdit, onCancel, onCancelOne
           </button>
           :<div style={{width:'100%',maxWidth:320,display:'flex',flexDirection:'column',gap:10}}>
             <div style={{fontSize:13,color:T.textMuted,textAlign:'center',lineHeight:1.5}}>
-              Ange e-post och telefonnummer du bokade med
+              Ange telefonnummer och din 4-siffriga bokningskod
             </div>
-            <input type="email" value={recoverEmail}
-              onChange={e=>{ setRecoverEmail(e.target.value); setRecoverState('idle'); }}
-              placeholder="din@epost.se" autoFocus
-              style={{background:T.cardElevated,border:`1px solid ${recoverState==='notfound'?T.error:T.border}`,borderRadius:10,padding:'12px 14px',fontSize:15,color:T.text,fontFamily:'system-ui',outline:'none',width:'100%',boxSizing:'border-box'}}
-            />
             <input type="tel" value={recoverPhone}
               onChange={e=>{ setRecoverPhone(e.target.value); setRecoverState('idle'); }}
-              placeholder="07X-XXX XX XX"
-              style={{background:T.cardElevated,border:`1px solid ${recoverState==='mismatch'?T.error:T.border}`,borderRadius:10,padding:'12px 14px',fontSize:15,color:T.text,fontFamily:'system-ui',outline:'none',width:'100%',boxSizing:'border-box'}}
+              placeholder="07X-XXX XX XX" autoFocus
+              style={{background:T.cardElevated,border:`1px solid ${recoverState==='wrong_pin'||recoverState==='notfound'?T.error:T.border}`,borderRadius:10,padding:'12px 14px',fontSize:15,color:T.text,fontFamily:'system-ui',outline:'none',width:'100%',boxSizing:'border-box'}}
             />
-            {recoverState==='notfound'&&<div style={{fontSize:12,color:'#ef4444',background:'#ef444418',borderRadius:8,padding:'8px 10px',textAlign:'center'}}>Ingen bokning hittades för denna e-post.</div>}
-            {recoverState==='mismatch'&&<div style={{fontSize:12,color:'#ef4444',background:'#ef444418',borderRadius:8,padding:'8px 10px',textAlign:'center'}}>E-post och telefon stämmer inte överens. Kontrollera och försök igen.</div>}
-            {recoverState==='error'&&<div style={{fontSize:12,color:'#f59e0b',background:'#f59e0b18',borderRadius:8,padding:'8px 10px',textAlign:'center'}}>Något gick fel — försök igen.</div>}
+            <input type="tel" inputMode="numeric" maxLength={4} value={recoverPin}
+              onChange={e=>{ const v=e.target.value.replace(/\D/g,'').slice(0,4); setRecoverPin(v); setRecoverState('idle'); }}
+              placeholder="- - - -"
+              style={{background:T.cardElevated,border:`1px solid ${recoverState==='wrong_pin'?T.error:T.border}`,borderRadius:10,padding:'12px 14px',fontSize:22,fontWeight:800,color:T.accent,fontFamily:'system-ui',outline:'none',width:'100%',boxSizing:'border-box',textAlign:'center',letterSpacing:8}}
+            />
+            {recoverState==='wrong_pin'&&<div style={{fontSize:12,color:'#ef4444',background:'#ef444418',borderRadius:8,padding:'8px 10px',textAlign:'center'}}>
+              Fel telefon eller bokningskod. {checkRateLimit().remaining} försök kvar.
+            </div>}
+            {recoverState==='notfound'&&<div style={{fontSize:12,color:'#ef4444',background:'#ef444418',borderRadius:8,padding:'8px 10px',textAlign:'center'}}>
+              Inga bokningar hittades för detta telefonnummer.
+            </div>}
+            {recoverState==='locked'&&<div style={{fontSize:12,color:'#f59e0b',background:'#f59e0b18',borderRadius:8,padding:'8px 10px',textAlign:'center'}}>
+              För många felaktiga försök. Försök igen om {lockoutMinutes} min.
+            </div>}
+            {recoverState==='error'&&<div style={{fontSize:12,color:'#f59e0b',background:'#f59e0b18',borderRadius:8,padding:'8px 10px',textAlign:'center'}}>
+              Något gick fel — försök igen.
+            </div>}
             <button onClick={handleRecover}
-              disabled={recoverState==='loading'||!recoverEmail.trim()||!recoverPhone.trim()}
-              style={{padding:'13px',borderRadius:12,border:'none',background:(recoverState==='loading'||!recoverEmail.trim()||!recoverPhone.trim())?T.textMuted:T.accent,color:'#fff',fontSize:15,fontWeight:700,cursor:recoverState==='loading'?'default':'pointer',fontFamily:'system-ui',WebkitTapHighlightColor:'transparent',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
-              {recoverState==='loading'?<><div style={{width:14,height:14,borderRadius:7,border:'2px solid rgba(255,255,255,0.35)',borderTopColor:'#fff',animation:'spin .7s linear infinite'}}/> Söker...</>:'Hämta mina bokningar'}
+              disabled={recoverState==='loading'||recoverState==='locked'||!recoverPhone.trim()||recoverPin.length!==4}
+              style={{padding:'13px',borderRadius:12,border:'none',background:(recoverState==='loading'||recoverState==='locked'||!recoverPhone.trim()||recoverPin.length!==4)?T.textMuted:T.accent,color:'#fff',fontSize:15,fontWeight:700,cursor:'pointer',fontFamily:'system-ui',WebkitTapHighlightColor:'transparent',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+              {recoverState==='loading'
+                ?<><div style={{width:14,height:14,borderRadius:7,border:'2px solid rgba(255,255,255,0.35)',borderTopColor:'#fff',animation:'spin .7s linear infinite'}}/> Söker...</>
+                :'Hämta mina bokningar'
+              }
             </button>
-            <button onClick={()=>{setShowRecover(false);setRecoverState('idle');}} style={{background:'none',border:'none',color:T.textMuted,fontSize:13,cursor:'pointer',fontFamily:'system-ui',padding:'4px 0'}}>Avbryt</button>
+            <button onClick={()=>{setShowRecover(false);setRecoverState('idle');setRecoverPin('');}} style={{background:'none',border:'none',color:T.textMuted,fontSize:13,cursor:'pointer',fontFamily:'system-ui',padding:'4px 0'}}>Avbryt</button>
           </div>
         }
       </div>
@@ -1552,6 +1678,7 @@ export default function BookingScreen({onBack, activateForDevice, registerAdminD
   const myBookings=useMemo(()=>bookings.filter(b=>b.device_id===deviceId),[bookings,deviceId]);
   const [toast,setToast]=useState('');
   const [cancelDialog,setCancelDialog]=useState(null);
+  const [pendingPinToShow,setPendingPinToShow]=useState(null); // PIN att visa efter ny bokning
 
   const showToast=useCallback((msg)=>{setToast(msg);setTimeout(()=>setToast(''),3000);},[]);
 
@@ -1577,14 +1704,44 @@ export default function BookingScreen({onBack, activateForDevice, registerAdminD
     setSubmitLoading(true);
     const isRecur=formData.recurrence!=='none'&&formData.recur_dates?.length>1;
     const groupId=isRecur?uid():null;
+
+    // ── PIN-hantering ────────────────────────────────────────────────────────
+    // Kolla om personen redan har en PIN (bokat förut med samma telefon)
+    let pin = localStorage.getItem(STORAGE_PIN);
+    let pinHash = localStorage.getItem(STORAGE_PIN_HASH);
+
+    if(!pin || !pinHash){
+      // Ny person — kolla Supabase om det finns en befintlig PIN för detta telefonnummer
+      const normPhone = normalizePhone(formData.phone);
+      const {data:existing} = await supabase
+        .from('bookings')
+        .select('user_pin_hash')
+        .eq('email', formData.email.toLowerCase().trim())
+        .not('user_pin_hash','is',null)
+        .limit(1);
+
+      if(existing?.length && existing[0].user_pin_hash){
+        // Telefon finns i DB — återanvänd hash (vi kan inte reversera den, PIN visas ej igen)
+        pinHash = existing[0].user_pin_hash;
+        pin = null; // okänd, visas inte
+      } else {
+        // Helt ny person — generera ny PIN
+        pin = generatePin();
+        pinHash = await sha256(normalizePhone(formData.phone) + ':' + pin);
+        localStorage.setItem(STORAGE_PIN, pin);
+        localStorage.setItem(STORAGE_PIN_HASH, pinHash);
+      }
+    }
+
     const rows=(formData.recur_dates||[formData.date]).map(iso=>({
       id:uid(),name:formData.name,phone:formData.phone,email:formData.email,
       activity:formData.activity,date:iso,time_slot:formData.time_slot,
       duration_hours:formData.duration_hours,status:'pending',admin_comment:'',
       created_at:Date.now(),resolved_at:null,device_id:deviceId,
       recurrence:formData.recurrence,recurrence_group_id:groupId,
+      user_pin_hash:pinHash,
     }));
-    // Batcha i grupper om 20 för att hålla sig under Supabase payload-gränsen
+
     const BATCH=20;
     for(let i=0;i<rows.length;i+=BATCH){
       const {error}=await supabase.from('bookings').insert(rows.slice(i,i+BATCH));
@@ -1596,47 +1753,65 @@ export default function BookingScreen({onBack, activateForDevice, registerAdminD
     }
     setSubmitLoading(false);
     activateForDevice?.();
-    // Cacha e-post och telefon lokalt — möjliggör tvåfaktor-återhämtning om cache rensas
-    if(formData.email) localStorage.setItem(STORAGE_EMAIL, formData.email.toLowerCase().trim());
-    if(formData.phone) localStorage.setItem(STORAGE_PHONE, normalizePhone(formData.phone));
+    // Cacha kontaktuppgifter
+    localStorage.setItem(STORAGE_EMAIL, formData.email.toLowerCase().trim());
+    localStorage.setItem(STORAGE_PHONE, normalizePhone(formData.phone));
     showToast(rows.length>1?`${rows.length} bokningsförfrågningar skickade!`:'Bokningsförfrågan skickad!');
-    setView('my-bookings');
+    // Visa PIN om det är ny person (pin finns i localStorage)
+    const freshPin = localStorage.getItem(STORAGE_PIN);
+    if(freshPin) setPendingPinToShow(freshPin);
+    else setView('my-bookings');
   },[showToast, deviceId, activateForDevice]);
 
   /* Besökare återkallar/avbokar
      - pending / edit_pending → direkt, ingen förklaring krävs
      - approved / edited      → direkt men kräver förklaring, admin notifieras via resolved_at */
   /* Återhämtning: kräver BÅDE e-post och telefon — tvåfaktor för säkerhet */
-  const handleRecoverByCredentials=useCallback(async(email,phone)=>{
-    const normalizedEmail = email.toLowerCase().trim();
+  /* Återhämtning via telefon + PIN-kod */
+  const handleRecoverByPin=useCallback(async(phone,pin)=>{
     const normalizedPhone = normalizePhone(phone);
-    // Hämta alla bokningar med denna e-post
+    // Hash PIN med telefon som salt — samma metod som vid bokning
+    const pinHash = await sha256(normalizedPhone + ':' + pin);
+    // Hämta alla bokningar med detta telefonnummer + matchande hash
     const {data,error}=await supabase
       .from('bookings')
-      .select('id,phone')
-      .eq('email',normalizedEmail);
-    if(error) throw new Error('fetch_error');
-    if(!data?.length) return 0;
-    // Filtrera på telefon (normaliserat) — måste matcha minst en bokning
-    const matching = data.filter(b=>normalizePhone(b.phone)===normalizedPhone);
-    if(!matching.length) return 0;
-    // Koppla om ALLA bokningar för denna e-post till nuvarande device_id
+      .select('id,device_id')
+      .eq('user_pin_hash', pinHash);
+    if(error) throw error;
+    if(!data?.length) return 0; // fel PIN eller okänt telefonnummer
+    // Koppla om till nuvarande device_id
     const ids = data.map(b=>b.id);
     const BATCH=20;
     for(let i=0;i<ids.length;i+=BATCH){
-      const {error:upErr}=await supabase
-        .from('bookings')
-        .update({device_id:deviceId})
-        .in('id',ids.slice(i,i+BATCH));
-      if(upErr) throw new Error('update_error');
+      await supabase.from('bookings').update({device_id:deviceId}).in('id',ids.slice(i,i+BATCH));
     }
-    // Cacha båda lokalt och aktivera notislyssning
-    localStorage.setItem(STORAGE_EMAIL, normalizedEmail);
     localStorage.setItem(STORAGE_PHONE, normalizedPhone);
+    localStorage.setItem(STORAGE_PIN_HASH, pinHash);
     localStorage.setItem('islamnu_has_booking','true');
     activateForDevice?.();
     return ids.length;
   },[deviceId,activateForDevice]);
+
+  /* Tyst återhämtning vid app-start om PIN-hash finns cachad i localStorage */
+  useEffect(()=>{
+    const cachedHash = localStorage.getItem(STORAGE_PIN_HASH);
+    if(!cachedHash||myBookings.length>0) return;
+    supabase.from('bookings').select('id,device_id').eq('user_pin_hash',cachedHash)
+      .then(({data})=>{
+        if(!data?.length) return;
+        const foreign = data.filter(b=>b.device_id!==deviceId);
+        if(!foreign.length) return;
+        const ids = foreign.map(b=>b.id);
+        const BATCH=20;
+        (async()=>{
+          for(let i=0;i<ids.length;i+=BATCH)
+            await supabase.from('bookings').update({device_id:deviceId}).in('id',ids.slice(i,i+BATCH));
+          localStorage.setItem('islamnu_has_booking','true');
+          activateForDevice?.();
+        })().catch(()=>{});
+      }).catch(()=>{});
+  // eslint-disable-next-line
+  },[]);
 
   const handleVisitorCancel=useCallback(async(booking, reason)=>{
     const noApproval = ['pending','edit_pending'].includes(booking.status);
@@ -1815,6 +1990,10 @@ export default function BookingScreen({onBack, activateForDevice, registerAdminD
   const pendingCount=bookings.filter(b=>b.status==='pending'||b.status==='edit_pending').length;
 
   /* Views */
+  if(pendingPinToShow) return <div style={{background:T.bg,minHeight:'100%'}}>
+    <PinRevealScreen pin={pendingPinToShow} onContinue={()=>{setPendingPinToShow(null);setView('my-bookings');}} T={T}/>
+  </div>;
+
   if(view==='form'&&pendingSlot) return <div style={{background:T.bg,minHeight:'100%'}}>
     <BookingForm date={pendingSlot.date} slotLabel={pendingSlot.slotLabel} durationHours={pendingSlot.durationHours} onSubmit={handleSubmitBooking} onBack={()=>setView('calendar')} loading={submitLoading} bookings={bookings} T={T}/>
     <Toast message={toast} T={T}/>
@@ -1850,7 +2029,7 @@ export default function BookingScreen({onBack, activateForDevice, registerAdminD
         onCancel={(b)=>setCancelDialog(b)}
         onCancelOne={handleVisitorCancelOne}
         onCancelFromDate={handleVisitorCancelFromDate}
-        onRecover={handleRecoverByCredentials}
+        onRecover={handleRecoverByPin}
         onBack={()=>setView('calendar')}
         T={T}
       />
