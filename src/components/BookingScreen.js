@@ -1163,7 +1163,11 @@ export default function BookingScreen({onBack, activateForDevice, registerAdminD
     const BATCH=50;
     for(let i=0;i<rows.length;i+=BATCH){
       const {error}=await supabase.from('bookings').insert(rows.slice(i,i+BATCH));
-      if(error){setSubmitLoading(false);showToast('Något gick fel. Försök igen.');return;}
+      if(error){
+        setSubmitLoading(false);
+        showToast(`Fel: ${error.message||'Något gick fel. Försök igen.'}`);
+        return;
+      }
     }
     setSubmitLoading(false);
     activateForDevice?.();
