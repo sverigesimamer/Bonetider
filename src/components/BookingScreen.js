@@ -1082,9 +1082,8 @@ function AdminEditForm({booking, bookings, onSubmit, onBack, loading, T}){
 }
 
 /* ── AdminPanel ── */
-function AdminPanel({bookings,onAction,onEdit,onDelete,onDeleteMany,onAddRecurring,onBack,onLogout,actionLoading,onTabBarHide,onTabBarShow,preselect,onClearPreselect,T}){
+function AdminPanel({bookings,onAction,onEdit,onDelete,onDeleteMany,onAddRecurring,onBack,onLogout,onMarkAdminSeen,actionLoading,onTabBarHide,onTabBarShow,preselect,onClearPreselect,T}){
   const hasPending = bookings.some(b=>b.status==='pending'||b.status==='edit_pending');
-  // Fix 6: default filter = 'pending' om det finns väntande, annars 'all'
   const [filter,setFilter]=useState(()=>hasPending?'pending':'all');
   const [selected,setSelected]=useState(null);
   const [selectedOccurrence,setSelectedOccurrence]=useState(null);
@@ -1095,6 +1094,47 @@ function AdminPanel({bookings,onAction,onEdit,onDelete,onDeleteMany,onAddRecurri
   const [deleteMode,setDeleteMode]=useState(null);
   const [deleteExplanation,setDeleteExplanation]=useState('');
   const [deleteExplanationError,setDeleteExplanationError]=useState('');
+
+  // Markera admin-notiser som lästa när panelen öppnas — per enhet via localStorage
+  useEffect(()=>{ onMarkAdminSeen?.(); },[]);// eslint-disable-line
+
+  // Per-status räknare för filter-badges — live från bookings-prop
+  const statusCounts = useMemo(()=>{
+    const counts = { pending:0, approved:0, edited:0, rejected:0, cancelled:0 };
+    // Gruppera per grupp-id för att inte räkna varje rad i en serie
+    const seen = new Set();
+    bookings.forEach(b=>{
+      const key = b.recurrence_group_id || b.id;
+      if(seen.has(key)) return;
+      seen.add(key);
+      const s = b.status;
+      if(s==='pending'||s==='edit_pending') counts.pending++;
+      else if(s==='approved') counts.approved++;
+      else if(s==='edited') counts.edited++;
+      else if(s==='rejected') counts.rejected++;
+      else if(s==='cancelled') counts.cancelled++;
+    });
+    return counts;
+  },[bookings]);
+
+  // "Ny sedan sist" — olästa per status för denna enhet
+  const unseenCounts = useMemo(()=>{
+    const adminSeenAt = parseInt(localStorage.getItem('islamnu_bookings_admin_seen')||'0',10);
+    const unseen = { pending:0, cancelled:0 };
+    const seen = new Set();
+    bookings.forEach(b=>{
+      const key = b.recurrence_group_id || b.id;
+      if(seen.has(key)) return;
+      seen.add(key);
+      const isNewPending = (b.status==='pending'||b.status==='edit_pending') && b.created_at > adminSeenAt;
+      const isNewCancelled = b.status==='cancelled' &&
+        (b.admin_comment||'').includes('esökaren') &&
+        b.resolved_at > adminSeenAt;
+      if(isNewPending) unseen.pending++;
+      if(isNewCancelled) unseen.cancelled++;
+    });
+    return unseen;
+  },[bookings]);
 
   // Fix 5+6: öppna rätt bokning direkt från kalender-detaljer-knapp
   useEffect(()=>{
@@ -1341,9 +1381,41 @@ function AdminPanel({bookings,onAction,onEdit,onDelete,onDeleteMany,onAddRecurri
       </div>
     </div>
     <div style={{display:'flex',gap:6,marginBottom:14,flexWrap:'wrap'}}>
-      {[['all','Alla'],['pending','Väntar'],['approved','Godkända'],['edited','Ändrade'],['rejected','Avböjda'],['cancelled','Inställda']].map(([id,label])=>(
-        <button key={id} onClick={()=>setFilter(id)} style={{padding:'5px 14px',borderRadius:20,border:`1px solid ${filter===id?T.accent:T.border}`,background:filter===id?`${T.accent}22`:'none',color:filter===id?T.accent:T.textMuted,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'system-ui',WebkitTapHighlightColor:'transparent'}}>{label}</button>
-      ))}
+      {[
+        ['all',     'Alla',      null,         null],
+        ['pending', 'Väntar',    statusCounts.pending,   unseenCounts.pending],
+        ['approved','Godkända',  statusCounts.approved,  null],
+        ['edited',  'Ändrade',   statusCounts.edited,    null],
+        ['rejected','Avböjda',   statusCounts.rejected,  null],
+        ['cancelled','Inställda',statusCounts.cancelled, unseenCounts.cancelled],
+      ].map(([id,label,count,unseen])=>{
+        const isActive = filter===id;
+        const hasUnseen = unseen > 0;
+        return (
+          <button key={id} onClick={()=>setFilter(id)} style={{
+            position:'relative',
+            padding: count!=null ? '5px 10px 5px 12px' : '5px 14px',
+            borderRadius:20,
+            border:`1px solid ${isActive?T.accent:hasUnseen?'#f59e0b66':T.border}`,
+            background:isActive?`${T.accent}22`:hasUnseen?'#f59e0b11':'none',
+            color:isActive?T.accent:hasUnseen?'#f59e0b':T.textMuted,
+            fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'system-ui',
+            WebkitTapHighlightColor:'transparent',
+            display:'flex',alignItems:'center',gap:5,
+          }}>
+            {label}
+            {count!=null && count>0 && (
+              <span style={{
+                background: hasUnseen ? '#f59e0b' : isActive ? T.accent : '#88888844',
+                color: hasUnseen||isActive ? '#fff' : T.textMuted,
+                borderRadius:10,fontSize:10,fontWeight:800,
+                padding:'1px 5px',lineHeight:'16px',
+                transition:'background .2s',
+              }}>{count>99?'99+':count}</span>
+            )}
+          </button>
+        );
+      })}
     </div>
     {groups.length===0
       ?<div style={{textAlign:'center',padding:'40px 0',color:T.textMuted,fontSize:14}}>Inga bokningar</div>
@@ -1400,7 +1472,7 @@ function AdminLogin({onSuccess,onBack,T}){
 }
 
 /* ── Root ── */
-export default function BookingScreen({onBack, activateForDevice, registerAdminDevice, startAtAdminLogin, onTabBarHide, onTabBarShow}){
+export default function BookingScreen({onBack, activateForDevice, registerAdminDevice, startAtAdminLogin, onTabBarHide, onTabBarShow, onMarkAdminSeen}){
   const {theme:T}=useTheme();
   const [bookings,setBookings]=useState([]);
   const [dbLoading,setDbLoading]=useState(true);
@@ -1688,7 +1760,7 @@ export default function BookingScreen({onBack, activateForDevice, registerAdminD
 
   if(view==='admin-login') return <div style={{background:T.bg,minHeight:'100%'}}><AdminLogin onSuccess={handleAdminLogin} onBack={()=>setView('calendar')} T={T}/></div>;
   if(view==='admin') return <div style={{background:T.bg,minHeight:'100%'}}>
-    <AdminPanel bookings={bookings} onAction={handleAdminAction} onEdit={handleAdminEdit} onDelete={handleAdminDelete} onDeleteMany={handleAdminDeleteMany} onAddRecurring={handleAdminAddRecurring} onBack={()=>setView('calendar')} onLogout={handleAdminLogout} actionLoading={actionLoading} onTabBarHide={onTabBarHide} onTabBarShow={onTabBarShow} preselect={adminPreselect} onClearPreselect={()=>setAdminPreselect(null)} T={T}/>
+    <AdminPanel bookings={bookings} onAction={handleAdminAction} onEdit={handleAdminEdit} onDelete={handleAdminDelete} onDeleteMany={handleAdminDeleteMany} onAddRecurring={handleAdminAddRecurring} onBack={()=>setView('calendar')} onLogout={handleAdminLogout} onMarkAdminSeen={onMarkAdminSeen} actionLoading={actionLoading} onTabBarHide={onTabBarHide} onTabBarShow={onTabBarShow} preselect={adminPreselect} onClearPreselect={()=>setAdminPreselect(null)} T={T}/>
     <Toast message={toast} T={T}/>
   </div>;
 

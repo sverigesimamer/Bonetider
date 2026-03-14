@@ -64,14 +64,14 @@ function SettingsGearIcon({ color }) {
   );
 }
 
-function GridCard({ item, onPress, T, badge = 0, pulse = false }) {
+function GridCard({ item, onPress, T, badge = 0, adminBadge = 0, pulse = false }) {
   const accent = item.accentColor || T.accent;
   return (
     <button
       onClick={onPress}
       style={{
         background: T.card,
-        border: `1px solid ${pulse ? item.accentColor || T.accent : T.border}`,
+        border: `1px solid ${pulse ? '#f59e0b' : T.border}`,
         borderRadius: 18,
         padding: '18px 14px 14px',
         cursor: 'pointer',
@@ -84,13 +84,27 @@ function GridCard({ item, onPress, T, badge = 0, pulse = false }) {
         transition: 'transform .12s, border-color .3s',
         WebkitUserSelect: 'none',
         position: 'relative',
-        boxShadow: pulse ? `0 0 0 0 ${item.accentColor || T.accent}55` : 'none',
+        boxShadow: pulse ? '0 0 0 0 rgba(245,158,11,0.4)' : 'none',
         animation: pulse ? 'cardPulse 2s ease-in-out infinite' : 'none',
       }}
     >
-      {badge > 0 && (
+      {/* Admin badge — orange, top-right */}
+      {adminBadge > 0 && (
         <div style={{
           position: 'absolute', top: 10, right: 10,
+          minWidth: 20, height: 20, borderRadius: 10,
+          background: '#f59e0b', color: '#fff',
+          fontSize: 11, fontWeight: 800, fontFamily: 'system-ui',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '0 5px', boxSizing: 'border-box',
+          boxShadow: '0 2px 6px rgba(245,158,11,0.5)',
+          animation: 'badgePop .3s cubic-bezier(0.175,0.885,0.32,1.275)',
+        }}>{adminBadge > 9 ? '9+' : adminBadge}</div>
+      )}
+      {/* Visitor badge — röd, bredvid admin-badge om båda finns */}
+      {badge > 0 && (
+        <div style={{
+          position: 'absolute', top: 10, right: adminBadge > 0 ? 38 : 10,
           minWidth: 20, height: 20, borderRadius: 10,
           background: '#ef4444', color: '#fff',
           fontSize: 11, fontWeight: 800, fontFamily: 'system-ui',
@@ -272,7 +286,7 @@ function SupportScreen({ onBack, T }) {
   );
 }
 
-export default function MoreScreen({ onTabBarHide, onTabBarShow, initialView, markVisitorSeen, markAdminSeen, activateForDevice, registerAdminDevice, bookingBadge = 0 }) {
+export default function MoreScreen({ onTabBarHide, onTabBarShow, initialView, markVisitorSeen, markAdminSeen, activateForDevice, registerAdminDevice, bookingBadge = 0, visitorBadge = 0, adminBadge = 0 }) {
   const { theme: T } = useTheme();
   const [view, setView] = useState(initialView || 'menu');
 
@@ -300,15 +314,16 @@ export default function MoreScreen({ onTabBarHide, onTabBarShow, initialView, ma
       startAtAdminLogin={view === 'booking-admin-login'}
       onTabBarHide={onTabBarHide}
       onTabBarShow={onTabBarShow}
+      onMarkAdminSeen={markAdminSeen}
     />;
 
   return (
     <div style={{ background: T.bg, minHeight: '100%', fontFamily: 'system-ui, sans-serif' }}>
       <style>{`
         @keyframes cardPulse {
-          0%   { box-shadow: 0 0 0 0px rgba(45,139,120,0.4); }
-          60%  { box-shadow: 0 0 0 7px rgba(45,139,120,0); }
-          100% { box-shadow: 0 0 0 0px rgba(45,139,120,0); }
+          0%   { box-shadow: 0 0 0 0px rgba(245,158,11,0.45); border-color: #f59e0b66; }
+          60%  { box-shadow: 0 0 0 8px rgba(245,158,11,0); border-color: #f59e0b44; }
+          100% { box-shadow: 0 0 0 0px rgba(245,158,11,0); border-color: #f59e0b66; }
         }
         @keyframes badgePop {
           0%   { transform: scale(0); }
@@ -351,8 +366,9 @@ export default function MoreScreen({ onTabBarHide, onTabBarShow, initialView, ma
               item={item}
               onPress={item.id === 'booking' ? handleOpenBooking : () => setView(item.id)}
               T={T}
-              badge={item.id === 'booking' ? bookingBadge : 0}
-              pulse={item.id === 'booking' && bookingBadge > 0}
+              badge={item.id === 'booking' ? visitorBadge : 0}
+              adminBadge={item.id === 'booking' ? adminBadge : 0}
+              pulse={item.id === 'booking' && (visitorBadge > 0 || adminBadge > 0)}
             />
           ))}
         </div>

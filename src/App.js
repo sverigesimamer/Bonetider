@@ -63,7 +63,7 @@ function Shell() {
   const [moreResetKey, setMoreResetKey]   = useState(0);
   const scrollContainerRef = useRef(null);
   const { isLive, stream } = useYoutubeLive();
-  const { totalUnread, markVisitorSeen, markAdminSeen, activateForDevice, registerAdminDevice, adminPendingNotif } = useBookingNotifications();
+  const { totalUnread, visitorUnread, adminUnread, adminPendingCount, markVisitorSeen, markAdminSeen, activateForDevice, registerAdminDevice, adminPendingNotif } = useBookingNotifications();
 
   // Reset scroll to top when tab or monthly view changes
   useEffect(() => {
@@ -141,7 +141,7 @@ function Shell() {
       case 'prayer':   return <PrayerScreen onMonthlyPress={() => setShowMonthly(true)} />;
       case 'qibla':    return <QiblaScreen />;
       case 'dhikr':    return <DhikrScreen />;
-      case 'more':     return <MoreScreen key={moreResetKey} onTabBarHide={() => setTabBarVisible(false)} onTabBarShow={() => setTabBarVisible(true)} initialView={moreInitialView} markVisitorSeen={markVisitorSeen} markAdminSeen={markAdminSeen} activateForDevice={activateForDevice} registerAdminDevice={registerAdminDevice} bookingBadge={totalUnread} />;
+      case 'more':     return <MoreScreen key={moreResetKey} onTabBarHide={() => setTabBarVisible(false)} onTabBarShow={() => setTabBarVisible(true)} initialView={moreInitialView} markVisitorSeen={markVisitorSeen} markAdminSeen={markAdminSeen} activateForDevice={activateForDevice} registerAdminDevice={registerAdminDevice} bookingBadge={totalUnread} visitorBadge={visitorUnread} adminBadge={adminUnread || adminPendingCount} />;
       default:         return <NewHomeScreen />;
     }
   };
@@ -248,16 +248,29 @@ function Shell() {
                       transition: 'filter .2s',
                     }}
                   />
-                  {t.id === 'more' && totalUnread > 0 && (
-                    <div style={{
-                      position: 'absolute', top: -3, right: -4,
-                      minWidth: 14, height: 14, borderRadius: 7,
-                      background: '#ef4444', color: '#fff',
-                      fontSize: 8, fontWeight: 800, fontFamily: 'system-ui',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      padding: '0 3px', boxSizing: 'border-box',
-                      border: `1.5px solid ${T.isDark ? 'rgba(18,18,18,0.9)' : 'rgba(245,248,247,0.9)'}`,
-                    }}>{totalUnread > 9 ? '9+' : totalUnread}</div>
+                  {t.id === 'more' && (visitorUnread > 0 || adminUnread > 0 || adminPendingCount > 0) && (
+                    <div style={{ position: 'absolute', top: -3, right: -4, display: 'flex', gap: 2 }}>
+                      {adminUnread > 0 || adminPendingCount > 0 ? (
+                        <div style={{
+                          minWidth: 14, height: 14, borderRadius: 7,
+                          background: '#f59e0b', color: '#fff',
+                          fontSize: 8, fontWeight: 800, fontFamily: 'system-ui',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          padding: '0 3px', boxSizing: 'border-box',
+                          border: `1.5px solid ${T.isDark ? 'rgba(18,18,18,0.9)' : 'rgba(245,248,247,0.9)'}`,
+                        }}>{(adminUnread || adminPendingCount) > 9 ? '9+' : (adminUnread || adminPendingCount)}</div>
+                      ) : null}
+                      {visitorUnread > 0 ? (
+                        <div style={{
+                          minWidth: 14, height: 14, borderRadius: 7,
+                          background: '#ef4444', color: '#fff',
+                          fontSize: 8, fontWeight: 800, fontFamily: 'system-ui',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          padding: '0 3px', boxSizing: 'border-box',
+                          border: `1.5px solid ${T.isDark ? 'rgba(18,18,18,0.9)' : 'rgba(245,248,247,0.9)'}`,
+                        }}>{visitorUnread > 9 ? '9+' : visitorUnread}</div>
+                      ) : null}
+                    </div>
                   )}
                 </div>
               ) : (
